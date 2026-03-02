@@ -83,6 +83,26 @@ type RateHistoryRow = {
   byCat: Record<string, number>;
 };
 
+type SignupToast = {
+  id: string;
+  newUserEmail: string;
+  createdAt: string;
+};
+
+type UserProfileRow = {
+  user_id: string;
+  email: string;
+  display_name: string;
+};
+
+type PublicProfileRow = {
+  user_id: string;
+  display_name: string | null;
+  is_public: boolean;
+};
+
+const OWNER_EMAIL = "stephen.ansley92@gmail.com";
+
 function avg(nums: number[]) {
   if (!nums.length) return 0;
   return nums.reduce((a, b) => a + b, 0) / nums.length;
@@ -114,6 +134,14 @@ export default function ProfilePage() {
   const [rateHistory, setRateHistory] = useState<RateHistoryRow[]>([]);
   const [rateLoading, setRateLoading] = useState(false);
   const [rateError, setRateError] = useState("");
+  const [signupToasts, setSignupToasts] = useState<SignupToast[]>([]);
+  const [userDisplayName, setUserDisplayName] = useState("");
+  const [profileResolved, setProfileResolved] = useState(false);
+  const [authUserId, setAuthUserId] = useState("");
+  const [publicProfileDisplayName, setPublicProfileDisplayName] = useState("");
+  const [publicProfileIsPublic, setPublicProfileIsPublic] = useState(true);
+  const [publicProfileError, setPublicProfileError] = useState("");
+  const [savingPublicProfile, setSavingPublicProfile] = useState(false);
 
   useEffect(() => {
     const options = getProfileOptions();
@@ -132,9 +160,100 @@ export default function ProfilePage() {
       const authClient = createSupabaseBrowserClient();
       const {
         data: { user },
+        error: userError,
       } = await authClient.auth.getUser();
 
-      setUserEmail(user?.email || "");
+      if (userError) {
+        setError(userError.message);
+        setLoading(false);
+        return;
+      }
+
+      const email = user?.email || "";
+      const normalizedEmail = email.trim().toLowerCase();
+      setUserEmail(email);
+
+      if (!user) {
+        setProfileResolved(true);
+        return;
+      }
+
+      setAuthUserId(user.id);
+
+      const { data: profileRow, error: profileError } = await authClient
+        .from("user_profiles")
+        .select("user_id,email,display_name")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        setError(profileError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (!profileRow) {
+        window.location.href = "/profile/setup";
+        return;
+      }
+
+      const resolvedDisplayName =
+        (profileRow as UserProfileRow).display_name?.trim() || email || "Profile";
+
+      setUserDisplayName(resolvedDisplayName);
+
+      if (normalizedEmail !== OWNER_EMAIL) {
+        setActiveProfile(resolvedDisplayName);
+      }
+
+      const { data: existingPublicProfile, error: publicProfileLoadError } =
+        await authClient
+          .from("public_profiles")
+          .select("user_id,display_name,is_public")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+      if (publicProfileLoadError) {
+        setPublicProfileError(publicProfileLoadError.message);
+        setPublicProfileDisplayName(resolvedDisplayName);
+        setPublicProfileIsPublic(true);
+        setProfileResolved(true);
+        return;
+      }
+
+      if (!existingPublicProfile) {
+        const { error: publicProfileUpsertError } = await authClient
+          .from("public_profiles")
+          .upsert(
+            {
+              user_id: user.id,
+              display_name: resolvedDisplayName,
+              is_public: true,
+            },
+            {
+              onConflict: "user_id",
+            }
+          );
+
+        if (publicProfileUpsertError) {
+          setPublicProfileError(publicProfileUpsertError.message);
+          setPublicProfileDisplayName(resolvedDisplayName);
+          setPublicProfileIsPublic(true);
+          setProfileResolved(true);
+          return;
+        }
+
+        setPublicProfileDisplayName(resolvedDisplayName);
+        setPublicProfileIsPublic(true);
+      } else {
+        const publicProfile = existingPublicProfile as PublicProfileRow;
+        setPublicProfileDisplayName(
+          publicProfile.display_name?.trim() || resolvedDisplayName
+        );
+        setPublicProfileIsPublic(Boolean(publicProfile.is_public));
+      }
+
+      setProfileResolved(true);
     };
 
     loadUser();
@@ -275,6 +394,62 @@ export default function ProfilePage() {
   }, []);
 
   useEffect(() => {
+    const normalizedEmail = userEmail.trim().toLowerCase();
+    if (!normalizedEmail || normalizedEmail !== OWNER_EMAIL) {
+      setSignupToasts([]);
+      return;
+    }
+
+    const authClient = createSupabaseBrowserClient();
+    const channel = authClient
+      .channel("owner-signup-events")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "signup_events",
+        },
+        (payload: {
+          new: {
+            id?: string;
+            created_at?: string;
+            new_user_email?: string | null;
+          };
+        }) => {
+          const inserted = payload.new as
+            | {
+                id?: string;
+                created_at?: string;
+                new_user_email?: string | null;
+              }
+            | undefined;
+
+          const insertedId = inserted?.id;
+          if (!insertedId) return;
+
+          setSignupToasts((prev) => [
+            {
+              id: insertedId,
+              newUserEmail: inserted.new_user_email?.trim() || "New user",
+              createdAt: inserted.created_at || new Date().toISOString(),
+            },
+            ...prev.filter((toast) => toast.id !== insertedId),
+          ]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void authClient.removeChannel(channel);
+    };
+  }, [userEmail]);
+
+  useEffect(() => {
+    if (!profileResolved) {
+      return;
+    }
+
     const load = async () => {
       try {
         setLoading(true);
@@ -371,7 +546,7 @@ export default function ProfilePage() {
     };
 
     load();
-  }, [activeProfile]);
+  }, [activeProfile, profileResolved]);
 
   const handleDeleteRating = async (row: HistoryRow) => {
     const ok = window.confirm(
@@ -432,6 +607,47 @@ export default function ProfilePage() {
     );
   };
 
+  const handleSavePublicProfile = async () => {
+    if (!authUserId) {
+      setPublicProfileError("Missing authenticated user.");
+      return;
+    }
+
+    const displayName = publicProfileDisplayName.trim();
+    if (!displayName) {
+      setPublicProfileError("Public display name is required.");
+      return;
+    }
+
+    try {
+      setSavingPublicProfile(true);
+      setPublicProfileError("");
+
+      const authClient = createSupabaseBrowserClient();
+      const { error: upsertError } = await authClient.from("public_profiles").upsert(
+        {
+          user_id: authUserId,
+          display_name: displayName,
+          is_public: publicProfileIsPublic,
+        },
+        {
+          onConflict: "user_id",
+        }
+      );
+
+      if (upsertError) {
+        setPublicProfileError(upsertError.message);
+        setSavingPublicProfile(false);
+        return;
+      }
+
+      setSavingPublicProfile(false);
+    } catch (e: unknown) {
+      setPublicProfileError(e instanceof Error ? e.message : "Unknown error.");
+      setSavingPublicProfile(false);
+    }
+  };
+
   const sortedHistory = useMemo(() => {
     const rows = [
       ...history,
@@ -473,8 +689,12 @@ export default function ProfilePage() {
   const bottomFive = useMemo(() => [...history].sort((a, b) => a.total - b.total).slice(0, 5), [history]);
   const ratedCount = history.length;
   const sessionCount = useMemo(() => new Set(history.map((row) => row.sessionId)).size, [history]);
+  const isOwner = userEmail.trim().toLowerCase() === OWNER_EMAIL;
+  const displayProfileName = isOwner
+    ? activeProfile
+    : userDisplayName || activeProfile;
 
-  if (loading) {
+  if (loading || (!profileResolved && !error)) {
     return (
       <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
         <div className="text-zinc-500">Loading profile...</div>
@@ -502,6 +722,43 @@ export default function ProfilePage() {
   return (
     <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
       <div className="max-w-6xl mx-auto">
+        {isOwner && signupToasts.length > 0 ? (
+          <div className="mb-4 space-y-3">
+            {signupToasts.map((toast) => (
+              <div
+                key={toast.id}
+                className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                      New Signup
+                    </div>
+                    <div className="mt-1 font-semibold text-emerald-950">
+                      {toast.newUserEmail}
+                    </div>
+                    <div className="mt-1 text-xs text-emerald-700">
+                      {formatDateTime(toast.createdAt)}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSignupToasts((prev) =>
+                        prev.filter((entry) => entry.id !== toast.id)
+                      )
+                    }
+                    className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <div className="bg-white border border-zinc-200 rounded-3xl p-5 md:p-6 shadow-sm">
           <div className="rounded-3xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -528,34 +785,105 @@ export default function ProfilePage() {
             </div>
           </div>
 
+          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
+            <div className="text-sm text-zinc-500">Public profile</div>
+            <div className="mt-2 text-lg font-semibold text-zinc-900">
+              Leaderboard visibility
+            </div>
+            <div className="mt-2 text-sm text-zinc-500">
+              For beta, public profiles default to on. Your public profile only exposes your display name and aggregated leaderboard stats.
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
+              <label className="block">
+                <span className="block text-sm font-semibold text-zinc-800">
+                  Public display name
+                </span>
+                <input
+                  value={publicProfileDisplayName}
+                  onChange={(e) => setPublicProfileDisplayName(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900"
+                  placeholder="Display name"
+                />
+              </label>
+
+              <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={publicProfileIsPublic}
+                  onChange={(e) => setPublicProfileIsPublic(e.target.checked)}
+                  className="h-4 w-4 accent-zinc-900"
+                />
+                <span className="text-sm font-semibold text-zinc-800">
+                  Show on public leaderboard
+                </span>
+              </label>
+            </div>
+
+            {publicProfileError ? (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {publicProfileError}
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={handleSavePublicProfile}
+                disabled={savingPublicProfile}
+                className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-5 py-3 font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+              >
+                {savingPublicProfile ? "Saving..." : "Save Public Profile"}
+              </button>
+
+              <Link
+                href="/leaderboard"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                View Leaderboard
+              </Link>
+            </div>
+          </div>
+
           <div className="mt-6 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-sm text-zinc-500">Cask Unknown</div>
               <div className="text-3xl font-extrabold tracking-tight mt-2">Your Profile</div>
               <div className="text-sm text-zinc-500 mt-2">
-                Active profile: <span className="font-semibold text-zinc-900">{activeProfile}</span>
+                Active profile: <span className="font-semibold text-zinc-900">{displayProfileName}</span>
               </div>
               <div className="text-xs text-zinc-500 mt-2">
-                This profile follows the same hard-coded name across all sessions.
+                {isOwner
+                  ? "This profile follows the same hard-coded name across all sessions."
+                  : "This name comes from your account profile and is used as your blind tasting identity."}
               </div>
             </div>
 
-            <div className="w-full md:w-auto">
-              <label className="text-sm font-semibold text-zinc-800">
-                Switch profile
-                <select
-                  value={activeProfile}
-                  onChange={(e) => setActiveProfile(e.target.value)}
-                  className="mt-2 w-full md:w-[220px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  {profileOptions.map((profile) => (
-                    <option key={profile} value={profile}>
-                      {profile}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+            {isOwner ? (
+              <div className="w-full md:w-auto">
+                <label className="text-sm font-semibold text-zinc-800">
+                  Switch profile
+                  <select
+                    value={activeProfile}
+                    onChange={(e) => setActiveProfile(e.target.value)}
+                    className="mt-2 w-full md:w-[220px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  >
+                    {profileOptions.map((profile) => (
+                      <option key={profile} value={profile}>
+                        {profile}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : (
+              <div className="w-full md:w-auto rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
+                <div className="text-xs text-zinc-500">Display name</div>
+                <div className="mt-1 font-semibold text-zinc-900">
+                  {displayProfileName}
+                </div>
+              </div>
+            )}
           </div>
 
           {!history.length ? (
@@ -761,145 +1089,6 @@ export default function ProfilePage() {
           </div>
 
 
-            {/*
-              <div className="mt-6 rounded-3xl border border-zinc-200 p-6 text-zinc-500">
-                Loading whiskeys...
-              </div>
-            ) : sortedWhiskeys.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-zinc-200 p-6 text-center">
-                <div className="text-lg font-semibold">No whiskeys yet</div>
-                <div className="mt-2 text-sm text-zinc-500">
-                  Create one from Rate New and it will appear here.
-                </div>
-              </div>
-            ) : (
-              <div className="mt-6 space-y-3">
-                {sortedWhiskeys.map((whiskey) => {
-                  const isEditing = editingWhiskeyId === whiskey.id;
-                  const draft = whiskeyDrafts[whiskey.id] || {
-                    name: whiskey.name,
-                    distillery: whiskey.distillery,
-                    proof: whiskey.proof,
-                    ageYears: whiskey.ageYears,
-                  };
-
-                  return (
-                    <div
-                      key={whiskey.id}
-                      className="rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4"
-                    >
-                      {isEditing ? (
-                        <div className="space-y-3">
-                          <input
-                            value={draft.name}
-                            onChange={(e) =>
-                              handleWhiskeyFieldChange(whiskey.id, "name", e.target.value)
-                            }
-                            placeholder="Name"
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                          <input
-                            value={draft.distillery}
-                            onChange={(e) =>
-                              handleWhiskeyFieldChange(whiskey.id, "distillery", e.target.value)
-                            }
-                            placeholder="Distillery"
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <input
-                              value={draft.proof}
-                              onChange={(e) =>
-                                handleWhiskeyFieldChange(whiskey.id, "proof", e.target.value)
-                              }
-                              placeholder="Proof"
-                              inputMode="decimal"
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                            <input
-                              value={draft.ageYears}
-                              onChange={(e) =>
-                                handleWhiskeyFieldChange(whiskey.id, "ageYears", e.target.value)
-                              }
-                              placeholder="Age Years"
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveWhiskey(whiskey)}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingWhiskeyId(null);
-                                setWhiskeyDrafts((prev) => {
-                                  const next = { ...prev };
-                                  delete next[whiskey.id];
-                                  return next;
-                                });
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <div className="font-semibold">{whiskey.name}</div>
-                            <div className="text-xs text-zinc-500 mt-1">
-                              {[
-                                whiskey.isFavorite ? "Favorite" : null,
-                                whiskey.distillery || null,
-                                whiskey.proof ? `${whiskey.proof} proof` : null,
-                                whiskey.ageYears ? `${whiskey.ageYears} years` : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" • ") || "No details yet"}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleFavorite(whiskey)}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                            >
-                              {whiskey.isFavorite ? "Unfavorite" : "Favorite"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingWhiskeyId(whiskey.id);
-                                setWhiskeyDrafts((prev) => ({
-                                  ...prev,
-                                  [whiskey.id]: {
-                                    name: whiskey.name,
-                                    distillery: whiskey.distillery,
-                                    proof: whiskey.proof,
-                                    ageYears: whiskey.ageYears,
-                                  },
-                                }));
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            */}
         </div>
       </div>
     </main>

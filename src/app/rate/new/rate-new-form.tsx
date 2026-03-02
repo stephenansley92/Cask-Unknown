@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type {
@@ -21,6 +21,17 @@ type RateNewFormProps = {
   template: RateTemplate;
   items: RateTemplateItem[];
   initialWhiskeys: WhiskeyOption[];
+};
+
+type SliderTouchState = {
+  itemId: string;
+  startX: number;
+  startY: number;
+  input: HTMLInputElement;
+  min: number;
+  max: number;
+  engaged: boolean;
+  canceled: boolean;
 };
 
 function parseProof(value: string) {
@@ -52,10 +63,14 @@ export function RateNewForm({
   const [error, setError] = useState("");
   const [creatingWhiskey, setCreatingWhiskey] = useState(false);
   const [savingRating, setSavingRating] = useState(false);
+  const [isScrollLocked, setIsScrollLocked] = useState(false);
   const [scoresByItemId, setScoresByItemId] = useState<Record<string, number>>(
     () =>
       Object.fromEntries(items.map((item) => [item.id, 0]))
   );
+  const scrollLockTimer = useRef<number | null>(null);
+  const activeSliderTouch = useRef<SliderTouchState | null>(null);
+  const notesRef = useRef<HTMLTextAreaElement | null>(null);
 
   const filteredWhiskeys = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -75,6 +90,154 @@ export function RateNewForm({
       ),
     [items, scoresByItemId]
   );
+
+  useEffect(() => {
+    const clearScrollLock = () => {
+      if (scrollLockTimer.current) {
+        window.clearTimeout(scrollLockTimer.current);
+      }
+
+      scrollLockTimer.current = window.setTimeout(() => {
+        setIsScrollLocked(false);
+        scrollLockTimer.current = null;
+      }, 140);
+    };
+
+    const handleScroll = () => {
+      setIsScrollLocked(true);
+      activeSliderTouch.current = null;
+
+      if (notesRef.current && document.activeElement === notesRef.current) {
+        notesRef.current.blur();
+      }
+
+      clearScrollLock();
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+
+      if (scrollLockTimer.current) {
+        window.clearTimeout(scrollLockTimer.current);
+      }
+    };
+  }, []);
+
+  const setSliderValue = (
+    itemId: string,
+    value: number,
+    min: number,
+    max: number
+  ) => {
+    if (isScrollLocked) return;
+
+    const safeValue = Number.isNaN(value) ? 0 : Math.max(min, Math.min(max, value));
+
+    setScoresByItemId((prev) => ({
+      ...prev,
+      [itemId]: safeValue,
+    }));
+  };
+
+  const setSliderValueFromTouch = (
+    itemId: string,
+    input: HTMLInputElement,
+    clientX: number,
+    min: number,
+    max: number
+  ) => {
+    const rect = input.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const raw = min + ratio * (max - min);
+    setSliderValue(itemId, Math.round(raw), min, max);
+  };
+
+  const handleSliderTouchStart = (
+    itemId: string,
+    min: number,
+    max: number,
+    e: TouchEvent<HTMLInputElement>
+  ) => {
+    if (isScrollLocked) return;
+
+    const touch = e.touches[0];
+    if (!touch) return;
+
+    activeSliderTouch.current = {
+      itemId,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      input: e.currentTarget,
+      min,
+      max,
+      engaged: false,
+      canceled: false,
+    };
+  };
+
+  const handleSliderTouchMove = (e: TouchEvent<HTMLInputElement>) => {
+    const gesture = activeSliderTouch.current;
+    const touch = e.touches[0];
+
+    if (!gesture || !touch || isScrollLocked) return;
+
+    const dx = touch.clientX - gesture.startX;
+    const dy = touch.clientY - gesture.startY;
+
+    if (!gesture.engaged) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+        gesture.canceled = true;
+        activeSliderTouch.current = gesture;
+        return;
+      }
+
+      if (Math.abs(dx) > 10 && Math.abs(dx) >= Math.abs(dy)) {
+        gesture.engaged = true;
+        activeSliderTouch.current = gesture;
+      } else {
+        return;
+      }
+    }
+
+    if (gesture.canceled) return;
+
+    e.preventDefault();
+    setSliderValueFromTouch(
+      gesture.itemId,
+      gesture.input,
+      touch.clientX,
+      gesture.min,
+      gesture.max
+    );
+  };
+
+  const handleSliderTouchEnd = (e: TouchEvent<HTMLInputElement>) => {
+    const gesture = activeSliderTouch.current;
+    const touch = e.changedTouches[0];
+
+    if (!gesture) return;
+
+    if (!gesture.canceled && touch && !isScrollLocked) {
+      const dx = Math.abs(touch.clientX - gesture.startX);
+      const dy = Math.abs(touch.clientY - gesture.startY);
+
+      if (gesture.engaged || (dx < 10 && dy < 10)) {
+        setSliderValueFromTouch(
+          gesture.itemId,
+          gesture.input,
+          touch.clientX,
+          gesture.min,
+          gesture.max
+        );
+      }
+    }
+
+    activeSliderTouch.current = null;
+  };
 
   const createWhiskey = async () => {
     const name = newName.trim();
@@ -394,17 +557,19 @@ export function RateNewForm({
                       step={1}
                       value={value}
                       onChange={(e) => {
-                        const nextValue = Number(e.target.value);
-                        const safeValue = Number.isNaN(nextValue)
-                          ? 0
-                          : Math.max(min, Math.min(max, nextValue));
-
-                        setScoresByItemId((prev) => ({
-                          ...prev,
-                          [item.id]: safeValue,
-                        }));
+                        if (activeSliderTouch.current) return;
+                        setSliderValue(item.id, Number(e.target.value), min, max);
+                      }}
+                      onTouchStart={(e) =>
+                        handleSliderTouchStart(item.id, min, max, e)
+                      }
+                      onTouchMove={handleSliderTouchMove}
+                      onTouchEnd={handleSliderTouchEnd}
+                      onTouchCancel={() => {
+                        activeSliderTouch.current = null;
                       }}
                       className="w-full accent-zinc-900"
+                      style={{ touchAction: "pan-y" }}
                     />
                     <div className="mt-1 flex justify-between text-[11px] text-zinc-400 tabular-nums">
                       <span>{min}</span>
@@ -422,6 +587,7 @@ export function RateNewForm({
             Notes
           </label>
           <textarea
+            ref={notesRef}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Optional notes"

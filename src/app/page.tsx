@@ -1,9 +1,29 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
+const OWNER_EMAIL = "stephen.ansley92@gmail.com";
 
 export default function Home() {
   const router = useRouter();
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const authClient = createSupabaseBrowserClient();
+      const {
+        data: { user },
+      } = await authClient.auth.getUser();
+
+      setIsOwner(
+        (user?.email || "").trim().toLowerCase() === OWNER_EMAIL
+      );
+    };
+
+    loadUser();
+  }, []);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center bg-zinc-900 text-white p-6">
@@ -34,6 +54,22 @@ export default function Home() {
         >
           Profile
         </button>
+
+        <button
+          onClick={() => router.push("/leaderboard")}
+          className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 font-semibold py-3 rounded-xl"
+        >
+          Users
+        </button>
+
+        {isOwner ? (
+          <button
+            onClick={() => router.push("/admin/testers")}
+            className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 font-semibold py-3 rounded-xl"
+          >
+            Admin Testers
+          </button>
+        ) : null}
 
         <button
           onClick={() =>
