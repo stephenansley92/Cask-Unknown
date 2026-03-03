@@ -387,7 +387,6 @@ export function RateNewForm({
     }
 
     router.push("/rate?saved=1");
-    router.refresh();
   };
 
   return (

@@ -300,13 +300,10 @@ export default async function PublicUserProfilePage({
 
   const blindOverallAverage = avg(history.map((row) => row.total));
   const blindRatedCount = history.length;
-  const ratedCount = blindRatedCount + rateModeRatingCount;
-  const overallAverage =
-    ratedCount > 0
-      ? (blindOverallAverage * blindRatedCount +
-          rateModeAverage * rateModeRatingCount) /
-        ratedCount
-      : 0;
+  const summaryAverage =
+    blindRatedCount > 0 ? blindOverallAverage : rateModeAverage;
+  const summaryRatedCount =
+    blindRatedCount > 0 ? blindRatedCount : rateModeRatingCount;
   const sessionCount = new Set(history.map((row) => row.sessionId)).size;
   const topFive = [...history].sort((a, b) => b.total - a.total).slice(0, 5);
   const bottomFive = [...history].sort((a, b) => a.total - b.total).slice(0, 5);
@@ -374,13 +371,13 @@ export default async function PublicUserProfilePage({
                 <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
                   <div className="text-xs text-zinc-500">Overall Avg</div>
                   <div className="text-2xl font-extrabold tabular-nums">
-                    {overallAverage.toFixed(1)}
+                    {summaryAverage.toFixed(1)}
                   </div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
                   <div className="text-xs text-zinc-500">Rated Pours</div>
                   <div className="text-2xl font-extrabold tabular-nums">
-                    {ratedCount}
+                    {summaryRatedCount}
                   </div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">

@@ -150,19 +150,14 @@ export default async function LeaderboardPage() {
       ratingCount: 0,
       averageScore: 0,
     };
-    const combinedCount = blindCount + rateSummary.ratingCount;
-    const combinedAverage =
-      combinedCount > 0
-        ? (blindAverage * blindCount +
-            rateSummary.averageScore * rateSummary.ratingCount) /
-          combinedCount
-        : 0;
+    const visibleCount = blindCount > 0 ? blindCount : rateSummary.ratingCount;
+    const visibleAverage = blindCount > 0 ? blindAverage : rateSummary.averageScore;
 
     return {
       userId: row.user_id,
       displayName,
-      ratingCount: combinedCount,
-      averageScore: combinedAverage,
+      ratingCount: visibleCount,
+      averageScore: visibleAverage,
     };
   });
 
