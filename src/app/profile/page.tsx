@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ACTIVE_PROFILE_STORAGE_KEY, BASE_PROFILES, getProfileOptions } from "@/lib/profiles";
+import {
+  buildWhiskeyIdentityKey,
+  buildWhiskeyInsertPayload,
+  EMPTY_WHISKEY_FORM_VALUES,
+  type WhiskeyFormValues,
+} from "@/lib/whiskey/schema";
 
 type SessionRow = {
   id: string;
@@ -25,6 +31,7 @@ type ParticipantRow = {
   id: string;
   session_id: string;
   display_name: string;
+  user_id?: string | null;
 };
 
 type ScoreRow = {
@@ -32,16 +39,16 @@ type ScoreRow = {
   session_id: string;
   pour_id: string;
   participant_id: string;
-  nose: number;
-  flavor: number;
-  mouthfeel: number;
-  complexity: number;
-  balance: number;
-  finish: number;
-  uniqueness: number;
-  drinkability: number;
-  packaging: number;
-  value: number;
+  nose: number | null;
+  flavor: number | null;
+  mouthfeel: number | null;
+  complexity: number | null;
+  balance: number | null;
+  finish: number | null;
+  uniqueness: number | null;
+  drinkability: number | null;
+  packaging: number | null;
+  value: number | null;
   total: number;
   notes?: string | null;
   created_at?: string;
@@ -61,7 +68,7 @@ const CATEGORY = [
 ] as const;
 
 type ScoreCategoryKey = (typeof CATEGORY)[number]["key"];
-type SortKey = "total" | ScoreCategoryKey;
+type SortKey = "recent" | "total" | ScoreCategoryKey;
 
 type HistoryRow = {
   id: string;
@@ -71,7 +78,7 @@ type HistoryRow = {
   total: number;
   notes: string;
   createdAt: string;
-  byCat: Record<string, number>;
+  byCat: Record<string, number | null>;
 };
 
 type RateHistoryRow = {
@@ -80,7 +87,7 @@ type RateHistoryRow = {
   notes: string;
   createdAt: string;
   whiskeyName: string;
-  byCat: Record<string, number>;
+  byCat: Record<string, number | null>;
 };
 
 type SignupToast = {
@@ -101,7 +108,47 @@ type PublicProfileRow = {
   is_public: boolean;
 };
 
+type ExistingWhiskeyRow = {
+  id: string;
+  user_id: string | null;
+  name: string;
+  distillery: string | null;
+  proof: number | null;
+  bottle_size: string | null;
+  category: string | null;
+  subcategory: string | null;
+  rarity: string | null;
+  msrp: number | null;
+  secondary: number | null;
+  paid: number | null;
+  status: string | null;
+  notes: string | null;
+  identity_key: string | null;
+};
+
 const OWNER_EMAIL = "stephen.ansley92@gmail.com";
+const COLLECTION_CSV_HEADER = [
+  "Name",
+  "Size",
+  "Category",
+  "Subcategory",
+  "Proof",
+  "Rarity",
+  "Distillery",
+  "MSRP",
+  "Secondary",
+  "Paid",
+  "Status",
+  "Notes",
+].join(",");
+const WHISKEY_IMPORT_SELECT =
+  "id,user_id,name,distillery,proof,bottle_size,category,subcategory,rarity,msrp,secondary,paid,status,notes,identity_key";
+const WHISKEY_IMPORT_SELECT_ATTEMPTS = [
+  WHISKEY_IMPORT_SELECT,
+  "id,user_id,name,distillery,proof,bottle_size,identity_key",
+  "id,user_id,name,distillery,proof,identity_key",
+  "id,user_id,name,identity_key",
+];
 
 function avg(nums: number[]) {
   if (!nums.length) return 0;
@@ -122,10 +169,190 @@ function formatDateTime(value?: string) {
   return date.toLocaleString();
 }
 
+function getTimestampMs(value?: string) {
+  if (!value) return 0;
+  const date = new Date(value);
+  const time = date.getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getDateOnlyKey(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function toNumberOrNull(value: unknown) {
+  if (value === null || value === undefined) return null;
+  const raw = typeof value === "string" ? value.trim() : value;
+  if (raw === "") return null;
+
+  const parsed = Number(raw);
+  if (Number.isNaN(parsed)) return null;
+  return parsed;
+}
+
+function parseCsv(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  let index = 0;
+
+  const input = text.replace(/^\uFEFF/, "");
+
+  while (index < input.length) {
+    const char = input[index];
+    const next = input[index + 1];
+
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        field += '"';
+        index += 2;
+        continue;
+      }
+
+      if (char === '"') {
+        inQuotes = false;
+        index += 1;
+        continue;
+      }
+
+      field += char;
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === ",") {
+      row.push(field);
+      field = "";
+      index += 1;
+      continue;
+    }
+
+    if (char === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      index += 1;
+      continue;
+    }
+
+    if (char === "\r") {
+      index += 1;
+      continue;
+    }
+
+    field += char;
+    index += 1;
+  }
+
+  row.push(field);
+  if (row.some((value) => value.trim().length > 0)) {
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function normalizeHeader(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function getCsvValue(
+  row: string[],
+  headerIndexByKey: Map<string, number>,
+  key: string
+) {
+  const index = headerIndexByKey.get(key);
+  if (index === undefined || index < 0 || index >= row.length) return "";
+  return row[index]?.trim() || "";
+}
+
+function shouldFillText(existing: string | null, incoming: string | null) {
+  return (!existing || !existing.trim()) && Boolean(incoming && incoming.trim());
+}
+
+function shouldFillNumber(existing: number | null, incoming: number | null) {
+  return (existing === null || existing === undefined) && incoming !== null;
+}
+
+function isUuidLike(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
+function toTextOrNull(value: unknown) {
+  if (typeof value !== "string") return null;
+  const clean = value.trim();
+  return clean ? clean : null;
+}
+
+function mapExistingWhiskeyRow(row: Record<string, unknown>): ExistingWhiskeyRow {
+  return {
+    id: typeof row.id === "string" ? row.id : "",
+    user_id: typeof row.user_id === "string" ? row.user_id : null,
+    name: typeof row.name === "string" ? row.name : "",
+    distillery: toTextOrNull(row.distillery),
+    proof: toNumberOrNull(row.proof),
+    bottle_size: toTextOrNull(row.bottle_size),
+    category: toTextOrNull(row.category),
+    subcategory: toTextOrNull(row.subcategory),
+    rarity: toTextOrNull(row.rarity),
+    msrp: toNumberOrNull(row.msrp),
+    secondary: toNumberOrNull(row.secondary),
+    paid: toNumberOrNull(row.paid),
+    status: toTextOrNull(row.status),
+    notes: toTextOrNull(row.notes),
+    identity_key: toTextOrNull(row.identity_key),
+  };
+}
+
+function getUnknownErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string" &&
+    String((error as { message: string }).message).trim()
+  ) {
+    return String((error as { message: string }).message).trim();
+  }
+  return fallback;
+}
+
+function normalizeCategoryKey(value: string): ScoreCategoryKey | null {
+  const key = value.trim().toLowerCase();
+  if (!key) return null;
+
+  if (CATEGORY.some((entry) => entry.key === key)) {
+    return key as ScoreCategoryKey;
+  }
+
+  if (key === "palate") return "flavor";
+  if (key === "taste") return "flavor";
+
+  return null;
+}
+
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("total");
+  const [sortKey, setSortKey] = useState<SortKey>("recent");
   const [profileOptions, setProfileOptions] = useState<string[]>([]);
   const [activeProfile, setActiveProfile] = useState<string>(BASE_PROFILES[0]);
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -142,6 +369,10 @@ export default function ProfilePage() {
   const [publicProfileIsPublic, setPublicProfileIsPublic] = useState(true);
   const [publicProfileError, setPublicProfileError] = useState("");
   const [savingPublicProfile, setSavingPublicProfile] = useState(false);
+  const [collectionFile, setCollectionFile] = useState<File | null>(null);
+  const [importingCollection, setImportingCollection] = useState(false);
+  const [collectionImportMessage, setCollectionImportMessage] = useState("");
+  const [collectionImportError, setCollectionImportError] = useState("");
 
   useEffect(() => {
     const options = getProfileOptions();
@@ -248,7 +479,9 @@ export default function ProfilePage() {
       } else {
         const publicProfile = existingPublicProfile as PublicProfileRow;
         setPublicProfileDisplayName(
-          publicProfile.display_name?.trim() || resolvedDisplayName
+          normalizedEmail === OWNER_EMAIL
+            ? publicProfile.display_name?.trim() || resolvedDisplayName
+            : resolvedDisplayName
         );
         setPublicProfileIsPublic(Boolean(publicProfile.is_public));
       }
@@ -278,15 +511,42 @@ export default function ProfilePage() {
           return;
         }
 
-        const normalizeScoreMap = (value: unknown) => {
-          if (!value || typeof value !== "object" || Array.isArray(value)) {
-            return {} as Record<string, number>;
+        const normalizeScoreMap = (value: unknown): Record<string, number | null> => {
+          if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (!trimmed) return {};
+
+            try {
+              return normalizeScoreMap(JSON.parse(trimmed));
+            } catch {
+              return {};
+            }
+          }
+
+          if (Array.isArray(value)) {
+            const map: Record<string, number | null> = {};
+            for (const entry of value) {
+              if (!entry || typeof entry !== "object") continue;
+
+              const row = entry as Record<string, unknown>;
+              const rawKey =
+                row.item_id ?? row.itemId ?? row.id ?? row.key ?? row.item_key;
+              const rawScore = row.score ?? row.value ?? row.points;
+              if (typeof rawKey !== "string" || !rawKey.trim()) continue;
+
+              map[rawKey.trim()] = toNumberOrNull(rawScore);
+            }
+            return map;
+          }
+
+          if (!value || typeof value !== "object") {
+            return {};
           }
 
           return Object.fromEntries(
             Object.entries(value as Record<string, unknown>).map(([key, rawValue]) => [
               key,
-              Number(rawValue ?? 0),
+              toNumberOrNull(rawValue),
             ])
           );
         };
@@ -295,8 +555,7 @@ export default function ProfilePage() {
           .from("ratings")
           .select("id,total_score,notes,rated_at,template_id,scores_json,whiskey:whiskeys(name)")
           .eq("user_id", user.id)
-          .order("rated_at", { ascending: false })
-          .limit(10);
+          .order("rated_at", { ascending: false });
 
         let ratingsData = withScoresJson.data as Record<string, unknown>[] | null;
         let scoreColumnKey: "scores_json" | "scores" = "scores_json";
@@ -306,8 +565,7 @@ export default function ProfilePage() {
             .from("ratings")
             .select("id,total_score,notes,rated_at,template_id,scores,whiskey:whiskeys(name)")
             .eq("user_id", user.id)
-            .order("rated_at", { ascending: false })
-            .limit(10);
+            .order("rated_at", { ascending: false });
 
           if (withScores.error) throw withScores.error;
 
@@ -357,19 +615,50 @@ export default function ProfilePage() {
           );
         }
 
+        const unresolvedTemplateItemIds = [
+          ...new Set(
+            rawRows
+              .flatMap((row) => Object.keys(row.scoreMap))
+              .map((key) => key.trim())
+              .filter(
+                (key) =>
+                  key.length > 0 &&
+                  !templateItemKeyById.has(key) &&
+                  isUuidLike(key)
+              )
+          ),
+        ];
+
+        if (unresolvedTemplateItemIds.length > 0) {
+          const { data: templateItemsByIdData, error: templateItemsByIdErr } =
+            await authClient
+              .from("template_items")
+              .select("id,item_key")
+              .in("id", unresolvedTemplateItemIds);
+
+          if (templateItemsByIdErr) throw templateItemsByIdErr;
+
+          for (const item of (templateItemsByIdData || []) as Record<string, unknown>[]) {
+            const id = (item.id as string) || "";
+            const itemKey = (item.item_key as string) || "";
+            if (id && itemKey && !templateItemKeyById.has(id)) {
+              templateItemKeyById.set(id, itemKey);
+            }
+          }
+        }
+
         const rows = rawRows.map((row) => {
           const byCat = Object.fromEntries(
-            CATEGORY.map((category) => [category.key, 0])
-          ) as Record<string, number>;
+            CATEGORY.map((category) => [category.key, null])
+          ) as Record<string, number | null>;
 
           for (const [itemId, score] of Object.entries(row.scoreMap)) {
-            const itemKey = templateItemKeyById.get(itemId);
-            if (!itemKey) continue;
+            const itemKey = templateItemKeyById.get(itemId) || itemId;
+            const categoryKey = normalizeCategoryKey(itemKey);
+            if (!categoryKey) continue;
+            if (score === null) continue;
 
-            const category = CATEGORY.find((entry) => entry.key === itemKey);
-            if (!category) continue;
-
-            byCat[category.key] = Number(score ?? 0);
+            byCat[categoryKey] = score;
           }
 
           return {
@@ -459,14 +748,48 @@ export default function ProfilePage() {
           window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, activeProfile);
         }
 
-        const { data: participantsData, error: participantsErr } = await supabase
-          .from("participants")
-          .select("id,session_id,display_name")
-          .eq("display_name", activeProfile);
+        const normalizedEmail = userEmail.trim().toLowerCase();
+        const ownerView = normalizedEmail === OWNER_EMAIL;
+        let participants: ParticipantRow[] = [];
 
-        if (participantsErr) throw participantsErr;
+        if (!ownerView && authUserId) {
+          const [
+            { data: ownedParticipantsData, error: ownedParticipantsErr },
+            { data: legacyParticipantsData, error: legacyParticipantsErr },
+          ] = await Promise.all([
+            supabase
+              .from("participants")
+              .select("id,session_id,display_name,user_id")
+              .eq("user_id", authUserId),
+            supabase
+              .from("participants")
+              .select("id,session_id,display_name,user_id")
+              .eq("display_name", activeProfile)
+              .is("user_id", null),
+          ]);
 
-        const participants = (participantsData || []) as ParticipantRow[];
+          if (ownedParticipantsErr) throw ownedParticipantsErr;
+          if (legacyParticipantsErr) throw legacyParticipantsErr;
+
+          const participantMap = new Map<string, ParticipantRow>();
+          for (const participant of [
+            ...((ownedParticipantsData || []) as ParticipantRow[]),
+            ...((legacyParticipantsData || []) as ParticipantRow[]),
+          ]) {
+            participantMap.set(participant.id, participant);
+          }
+          participants = [...participantMap.values()];
+        } else {
+          const { data: participantsData, error: participantsErr } = await supabase
+            .from("participants")
+            .select("id,session_id,display_name,user_id")
+            .eq("display_name", activeProfile);
+
+          if (participantsErr) throw participantsErr;
+
+          participants = (participantsData || []) as ParticipantRow[];
+        }
+
         if (!participants.length) {
           setHistory([]);
           setLoading(false);
@@ -520,9 +843,9 @@ export default function ProfilePage() {
               : pour.bottle_name || `${session?.title || "Session"} - Pour ${pour.code}`;
           }
 
-          const byCat: Record<string, number> = {};
+          const byCat: Record<string, number | null> = {};
           for (const c of CATEGORY) {
-            byCat[c.key] = Number(score[c.key as ScoreCategoryKey] ?? 0);
+            byCat[c.key] = toNumberOrNull(score[c.key as ScoreCategoryKey]);
           }
 
           return {
@@ -546,66 +869,7 @@ export default function ProfilePage() {
     };
 
     load();
-  }, [activeProfile, profileResolved]);
-
-  const handleDeleteRating = async (row: HistoryRow) => {
-    const ok = window.confirm(
-      `Delete this rating for ${row.pourLabel}?\n\nThis permanently removes the saved score so you can clean up fake beta data.`
-    );
-    if (!ok) return;
-
-    try {
-      const { error: deleteErr } = await supabase.from("scores").delete().eq("id", row.id);
-
-      if (deleteErr) {
-        setError(deleteErr.message);
-        return;
-      }
-
-      setHistory((prev) => prev.filter((item) => item.id !== row.id));
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Unknown error.");
-    }
-  };
-
-  const handleDeleteRateRating = async (ratingId: string, label: string) => {
-    const ok = window.confirm(
-      `Delete this rating for ${label}?\n\nThis permanently removes the saved Rate Mode score.`
-    );
-    if (!ok) return;
-
-    try {
-      const authClient = createSupabaseBrowserClient();
-      const { error: deleteErr } = await authClient
-        .from("ratings")
-        .delete()
-        .eq("id", ratingId);
-
-      if (deleteErr) {
-        setRateError(deleteErr.message);
-        return;
-      }
-
-      setRateHistory((prev) => prev.filter((item) => item.id !== ratingId));
-    } catch (e: unknown) {
-      setRateError(e instanceof Error ? e.message : "Unknown error.");
-    }
-  };
-
-  const handleViewBlindRating = (row: HistoryRow) => {
-    const breakdown = CATEGORY.map(
-      (category) =>
-        `${category.label}: ${Number(row.byCat[category.key] ?? 0).toFixed(1)}/${category.max}`
-    ).join("\n");
-
-    const notes = row.notes ? `\n\nNotes:\n${row.notes}` : "";
-
-    window.alert(
-      `${row.pourLabel}\n${row.sessionTitle}\nRated ${formatDate(row.createdAt)}\nOverall: ${row.total.toFixed(
-        0
-      )}/100\n\nBreakdown:\n${breakdown}${notes}`
-    );
-  };
+  }, [activeProfile, authUserId, profileResolved, userEmail]);
 
   const handleSavePublicProfile = async () => {
     if (!authUserId) {
@@ -613,7 +877,10 @@ export default function ProfilePage() {
       return;
     }
 
-    const displayName = publicProfileDisplayName.trim();
+    const displayName =
+      userEmail.trim().toLowerCase() === OWNER_EMAIL
+        ? publicProfileDisplayName.trim()
+        : userDisplayName.trim();
     if (!displayName) {
       setPublicProfileError("Public display name is required.");
       return;
@@ -648,8 +915,326 @@ export default function ProfilePage() {
     }
   };
 
-  const sortedHistory = useMemo(() => {
-    const rows = [
+  const handleDownloadCollectionTemplate = () => {
+    const blob = new Blob([`${COLLECTION_CSV_HEADER}\n`], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "cask-unknown-collection-template.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleImportCollectionCsv = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!collectionFile) {
+      setCollectionImportError("Please choose a CSV file.");
+      setCollectionImportMessage("");
+      return;
+    }
+
+    try {
+      setImportingCollection(true);
+      setCollectionImportError("");
+      setCollectionImportMessage("");
+
+      const authClient = createSupabaseBrowserClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await authClient.auth.getUser();
+
+      if (userError) throw userError;
+      if (!user) {
+        throw new Error("Sign in to import your collection.");
+      }
+
+      const rawText = await collectionFile.text();
+      if (!rawText.trim()) {
+        throw new Error("CSV is empty.");
+      }
+
+      const rows = parseCsv(rawText);
+      if (rows.length < 2) {
+        throw new Error("CSV must include a header row and at least one data row.");
+      }
+
+      const headers = rows[0].map(normalizeHeader);
+      const headerIndexByKey = new Map<string, number>();
+      headers.forEach((header, index) => {
+        if (!headerIndexByKey.has(header)) {
+          headerIndexByKey.set(header, index);
+        }
+      });
+
+      if (!headerIndexByKey.has("name")) {
+        throw new Error("CSV is missing required Name column.");
+      }
+
+      let existingDataRaw: Record<string, unknown>[] = [];
+      let loadedExistingRows = false;
+      let existingLoadError = "";
+
+      for (const selectColumns of WHISKEY_IMPORT_SELECT_ATTEMPTS) {
+        const { data, error: existingError } = await authClient
+          .from("whiskeys")
+          .select(selectColumns);
+
+        if (!existingError) {
+          existingDataRaw = (data || []) as Record<string, unknown>[];
+          loadedExistingRows = true;
+          break;
+        }
+
+        existingLoadError =
+          existingError.message || "Could not read whiskey library.";
+      }
+
+      if (!loadedExistingRows) {
+        throw new Error(existingLoadError || "Could not read whiskey library.");
+      }
+
+      const existingByKey = new Map<string, ExistingWhiskeyRow>();
+      for (const raw of existingDataRaw.map(mapExistingWhiskeyRow)) {
+        const key =
+          raw.identity_key ||
+          buildWhiskeyIdentityKey({
+            name: raw.name,
+            distillery: raw.distillery,
+            proof: raw.proof,
+            bottleSize: raw.bottle_size,
+          });
+        if (key && !existingByKey.has(key)) {
+          existingByKey.set(key, raw);
+        }
+      }
+
+      let inserted = 0;
+      let updated = 0;
+      let skipped = 0;
+      let processedRows = 0;
+
+      for (const row of rows.slice(1)) {
+        if (!row.some((value) => value.trim().length > 0)) {
+          continue;
+        }
+
+        processedRows += 1;
+        const whiskeyValues: WhiskeyFormValues = {
+          ...EMPTY_WHISKEY_FORM_VALUES,
+          name: getCsvValue(row, headerIndexByKey, "name"),
+          bottleSize: getCsvValue(row, headerIndexByKey, "size"),
+          category: getCsvValue(row, headerIndexByKey, "category"),
+          subcategory: getCsvValue(row, headerIndexByKey, "subcategory"),
+          proof: getCsvValue(row, headerIndexByKey, "proof"),
+          rarity: getCsvValue(row, headerIndexByKey, "rarity"),
+          distillery: getCsvValue(row, headerIndexByKey, "distillery"),
+          msrp: getCsvValue(row, headerIndexByKey, "msrp"),
+          secondary: getCsvValue(row, headerIndexByKey, "secondary"),
+          paid: getCsvValue(row, headerIndexByKey, "paid"),
+          status: getCsvValue(row, headerIndexByKey, "status"),
+          notes: getCsvValue(row, headerIndexByKey, "notes"),
+        };
+
+        const payload = buildWhiskeyInsertPayload(whiskeyValues);
+        if (!payload.name) {
+          skipped += 1;
+          continue;
+        }
+
+        const identityKey = payload.identity_key || "";
+        const existing = identityKey ? existingByKey.get(identityKey) : undefined;
+
+        if (existing) {
+          if (existing.user_id !== user.id) {
+            skipped += 1;
+            continue;
+          }
+
+          const patch: Record<string, string | number | null> = {};
+          if (shouldFillText(existing.distillery, payload.distillery)) {
+            patch.distillery = payload.distillery;
+          }
+          if (shouldFillNumber(existing.proof, payload.proof)) {
+            patch.proof = payload.proof;
+          }
+          if (shouldFillText(existing.bottle_size, payload.bottle_size)) {
+            patch.bottle_size = payload.bottle_size;
+          }
+          if (shouldFillText(existing.category, payload.category)) {
+            patch.category = payload.category;
+          }
+          if (shouldFillText(existing.subcategory, payload.subcategory)) {
+            patch.subcategory = payload.subcategory;
+          }
+          if (shouldFillText(existing.rarity, payload.rarity)) {
+            patch.rarity = payload.rarity;
+          }
+          if (shouldFillNumber(existing.msrp, payload.msrp)) {
+            patch.msrp = payload.msrp;
+          }
+          if (shouldFillNumber(existing.secondary, payload.secondary)) {
+            patch.secondary = payload.secondary;
+          }
+          if (shouldFillNumber(existing.paid, payload.paid)) {
+            patch.paid = payload.paid;
+          }
+          if (shouldFillText(existing.status, payload.status)) {
+            patch.status = payload.status;
+          }
+          if (shouldFillText(existing.notes, payload.notes)) {
+            patch.notes = payload.notes;
+          }
+          if (!existing.identity_key && identityKey) {
+            patch.identity_key = identityKey;
+          }
+
+          if (Object.keys(patch).length === 0) {
+            skipped += 1;
+            continue;
+          }
+
+          const { error: updateError } = await authClient
+            .from("whiskeys")
+            .update(patch)
+            .eq("id", existing.id);
+
+          if (updateError) {
+            throw new Error(updateError.message || "Could not update whiskey.");
+          }
+
+          if (identityKey) {
+            existingByKey.set(identityKey, {
+              ...existing,
+              ...patch,
+              identity_key:
+                (typeof patch.identity_key === "string" ? patch.identity_key : null) ||
+                existing.identity_key,
+            });
+          }
+
+          updated += 1;
+          continue;
+        }
+
+        const payloadWithoutAge = Object.fromEntries(
+          Object.entries(payload).filter(([key]) => key !== "age")
+        );
+        const insertAttempts = [
+          { user_id: user.id, ...payload },
+          { user_id: user.id, ...payloadWithoutAge },
+          {
+            user_id: user.id,
+            name: payload.name,
+            distillery: payload.distillery,
+            proof: payload.proof,
+          },
+          {
+            user_id: user.id,
+            name: payload.name,
+          },
+        ];
+
+        let insertedRow: ExistingWhiskeyRow | null = null;
+        let insertedNew = false;
+        let lastInsertError = "";
+
+        for (const insertPayload of insertAttempts) {
+          const { error: insertError } = await authClient
+            .from("whiskeys")
+            .insert(insertPayload);
+
+          if (!insertError) {
+            insertedRow = mapExistingWhiskeyRow({
+              id: "",
+              user_id: user.id,
+              name: payload.name,
+              distillery: payload.distillery,
+              proof: payload.proof,
+              bottle_size: payload.bottle_size,
+              category: payload.category,
+              subcategory: payload.subcategory,
+              rarity: payload.rarity,
+              msrp: payload.msrp,
+              secondary: payload.secondary,
+              paid: payload.paid,
+              status: payload.status,
+              notes: payload.notes,
+              identity_key: identityKey || null,
+            });
+            insertedNew = true;
+            break;
+          }
+
+          lastInsertError = insertError?.message || "Could not insert whiskey.";
+        }
+
+        if (!insertedRow && identityKey) {
+          let existingRowData: Record<string, unknown> | null = null;
+          let existingRowError = "";
+
+          for (const selectColumns of WHISKEY_IMPORT_SELECT_ATTEMPTS) {
+            const result = await authClient
+              .from("whiskeys")
+              .select(selectColumns)
+              .eq("identity_key", identityKey)
+              .limit(1)
+              .maybeSingle();
+
+            if (!result.error) {
+              existingRowData = (result.data || null) as Record<string, unknown> | null;
+              existingRowError = "";
+              break;
+            }
+
+            existingRowError = result.error.message || "Could not read whiskey by identity.";
+          }
+
+          if (existingRowData) {
+            insertedRow = mapExistingWhiskeyRow(existingRowData);
+          } else if (existingRowError) {
+            throw new Error(existingRowError);
+          }
+        }
+
+        if (!insertedRow) {
+          if (lastInsertError) {
+            throw new Error(lastInsertError);
+          }
+          skipped += 1;
+          continue;
+        }
+
+        if (identityKey) {
+          existingByKey.set(identityKey, insertedRow);
+        }
+
+        if (insertedNew) {
+          inserted += 1;
+        } else {
+          skipped += 1;
+        }
+      }
+
+      setCollectionImportMessage(
+        `Import complete. Rows: ${processedRows}. Inserted: ${inserted}. Updated: ${updated}. Skipped: ${skipped}.`
+      );
+      setCollectionFile(null);
+      form.reset();
+    } catch (e: unknown) {
+      setCollectionImportError(getUnknownErrorMessage(e, "Could not import collection CSV."));
+    } finally {
+      setImportingCollection(false);
+    }
+  };
+
+  const combinedHistory = useMemo(() => {
+    return [
       ...history,
       ...rateHistory.map((row) => ({
         id: row.id,
@@ -662,33 +1247,82 @@ export default function ProfilePage() {
         byCat: row.byCat,
       })),
     ];
+  }, [history, rateHistory]);
 
+  const sortedHistory = useMemo(() => {
+    const rows = [...combinedHistory];
     rows.sort((a, b) => {
-      const aValue = sortKey === "total" ? a.total : a.byCat[sortKey] ?? 0;
-      const bValue = sortKey === "total" ? b.total : b.byCat[sortKey] ?? 0;
+      if (sortKey === "recent") {
+        const aDay = getDateOnlyKey(a.createdAt);
+        const bDay = getDateOnlyKey(b.createdAt);
+        if (bDay !== aDay) return bDay.localeCompare(aDay);
+        if (b.total !== a.total) return b.total - a.total;
+        const aTime = getTimestampMs(a.createdAt);
+        const bTime = getTimestampMs(b.createdAt);
+        if (bTime !== aTime) return bTime - aTime;
+        return b.total - a.total;
+      }
+
+      const aValue =
+        sortKey === "total"
+          ? a.total
+          : typeof a.byCat[sortKey] === "number"
+            ? (a.byCat[sortKey] as number)
+            : Number.NEGATIVE_INFINITY;
+      const bValue =
+        sortKey === "total"
+          ? b.total
+          : typeof b.byCat[sortKey] === "number"
+            ? (b.byCat[sortKey] as number)
+            : Number.NEGATIVE_INFINITY;
 
       if (bValue !== aValue) return bValue - aValue;
+      const aTime = getTimestampMs(a.createdAt);
+      const bTime = getTimestampMs(b.createdAt);
+      if (bTime !== aTime) return bTime - aTime;
       return b.total - a.total;
     });
 
     return rows;
-  }, [history, rateHistory, sortKey]);
+  }, [combinedHistory, sortKey]);
+
+  const activeSortCategory = useMemo(() => {
+    if (sortKey === "recent" || sortKey === "total") return null;
+    return CATEGORY.find((category) => category.key === sortKey) || null;
+  }, [sortKey]);
 
   const categoryAverages = useMemo(() => {
     const out: Record<string, number> = {};
 
     for (const c of CATEGORY) {
-      out[c.key] = avg(history.map((row) => row.byCat[c.key] ?? 0));
+      const values = combinedHistory
+        .map((row) => row.byCat[c.key])
+        .filter((value): value is number => typeof value === "number");
+      out[c.key] = avg(values);
     }
 
     return out;
-  }, [history]);
+  }, [combinedHistory]);
 
-  const overallAverage = useMemo(() => avg(history.map((row) => row.total)), [history]);
-  const topFive = useMemo(() => [...history].sort((a, b) => b.total - a.total).slice(0, 5), [history]);
-  const bottomFive = useMemo(() => [...history].sort((a, b) => a.total - b.total).slice(0, 5), [history]);
-  const ratedCount = history.length;
-  const sessionCount = useMemo(() => new Set(history.map((row) => row.sessionId)).size, [history]);
+  const overallAverage = useMemo(
+    () => avg(combinedHistory.map((row) => row.total)),
+    [combinedHistory]
+  );
+  const topFive = useMemo(
+    () => [...combinedHistory].sort((a, b) => b.total - a.total).slice(0, 5),
+    [combinedHistory]
+  );
+  const bottomFive = useMemo(
+    () => [...combinedHistory].sort((a, b) => a.total - b.total).slice(0, 5),
+    [combinedHistory]
+  );
+  const ratedCount = combinedHistory.length;
+  const sessionCount = useMemo(() => {
+    const blindSessions = new Set(
+      history.filter((row) => !row.sessionId.startsWith("rate:")).map((row) => row.sessionId)
+    ).size;
+    return blindSessions + (rateHistory.length > 0 ? 1 : 0);
+  }, [history, rateHistory]);
   const isOwner = userEmail.trim().toLowerCase() === OWNER_EMAIL;
   const displayProfileName = isOwner
     ? activeProfile
@@ -760,91 +1394,6 @@ export default function ProfilePage() {
         ) : null}
 
         <div className="bg-white border border-zinc-200 rounded-3xl p-5 md:p-6 shadow-sm">
-          <div className="rounded-3xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <div className="text-xs text-zinc-500">Authenticated Account</div>
-                <div className="mt-1 font-semibold text-zinc-900">
-                  {userEmail || "Signed-in user"}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  setSigningOut(true);
-                  const authClient = createSupabaseBrowserClient();
-                  await authClient.auth.signOut();
-                  window.location.href = "/login?message=Signed%20out.";
-                }}
-                disabled={signingOut}
-                className="inline-flex items-center justify-center rounded-2xl px-4 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
-              >
-                {signingOut ? "Signing Out..." : "Sign Out"}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-            <div className="text-sm text-zinc-500">Public profile</div>
-            <div className="mt-2 text-lg font-semibold text-zinc-900">
-              Leaderboard visibility
-            </div>
-            <div className="mt-2 text-sm text-zinc-500">
-              For beta, public profiles default to on. Your public profile only exposes your display name and aggregated leaderboard stats.
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
-              <label className="block">
-                <span className="block text-sm font-semibold text-zinc-800">
-                  Public display name
-                </span>
-                <input
-                  value={publicProfileDisplayName}
-                  onChange={(e) => setPublicProfileDisplayName(e.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900"
-                  placeholder="Display name"
-                />
-              </label>
-
-              <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={publicProfileIsPublic}
-                  onChange={(e) => setPublicProfileIsPublic(e.target.checked)}
-                  className="h-4 w-4 accent-zinc-900"
-                />
-                <span className="text-sm font-semibold text-zinc-800">
-                  Show on public leaderboard
-                </span>
-              </label>
-            </div>
-
-            {publicProfileError ? (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {publicProfileError}
-              </div>
-            ) : null}
-
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <button
-                type="button"
-                onClick={handleSavePublicProfile}
-                disabled={savingPublicProfile}
-                className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-5 py-3 font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-              >
-                {savingPublicProfile ? "Saving..." : "Save Public Profile"}
-              </button>
-
-              <Link
-                href="/leaderboard"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                View Leaderboard
-              </Link>
-            </div>
-          </div>
-
           <div className="mt-6 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <div className="text-sm text-zinc-500">Cask Unknown</div>
@@ -859,38 +1408,57 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {isOwner ? (
-              <div className="w-full md:w-auto">
-                <label className="text-sm font-semibold text-zinc-800">
-                  Switch profile
-                  <select
-                    value={activeProfile}
-                    onChange={(e) => setActiveProfile(e.target.value)}
-                    className="mt-2 w-full md:w-[220px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  >
-                    {profileOptions.map((profile) => (
-                      <option key={profile} value={profile}>
-                        {profile}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+            <div className="w-full md:w-auto flex flex-col gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Link
+                  href="/rate/new"
+                  className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800"
+                >
+                  Rate Now
+                </Link>
+                <Link
+                  href="/"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                >
+                  Home
+                </Link>
               </div>
-            ) : (
-              <div className="w-full md:w-auto rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
-                <div className="text-xs text-zinc-500">Display name</div>
-                <div className="mt-1 font-semibold text-zinc-900">
-                  {displayProfileName}
+
+              {isOwner ? (
+                <div className="w-full md:w-auto">
+                  <label className="text-sm font-semibold text-zinc-800">
+                    Switch profile
+                    <select
+                      value={activeProfile}
+                      onChange={(e) => setActiveProfile(e.target.value)}
+                      className="mt-2 w-full md:w-[220px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {profileOptions.map((profile) => (
+                        <option key={profile} value={profile}>
+                          {profile}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="w-full md:w-auto rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
+                  <div className="text-xs text-zinc-500">Display name</div>
+                  <div className="mt-1 font-semibold text-zinc-900">
+                    {displayProfileName}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          {!history.length ? (
+          {!combinedHistory.length ? (
             <div className="mt-6 rounded-3xl border border-zinc-200 p-6">
-              <div className="text-lg font-semibold">No blind ratings yet for {activeProfile}.</div>
+              <div className="text-lg font-semibold">
+                No ratings yet for {displayProfileName}.
+              </div>
               <div className="mt-2 text-sm text-zinc-500">
-                Join a tasting with this profile name and the history will build automatically.
+                Rate something or join a tasting to start building history.
               </div>
             </div>
           ) : (
@@ -977,13 +1545,6 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Link
-                  href="/rate/new"
-                  className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800"
-                >
-                  Rate Now
-                </Link>
-
                 <label className="text-sm font-semibold text-zinc-800">
                   Sort by{" "}
                   <select
@@ -991,6 +1552,7 @@ export default function ProfilePage() {
                     onChange={(e) => setSortKey(e.target.value as SortKey)}
                     className="ml-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   >
+                    <option value="recent">Newest First</option>
                     <option value="total">Overall Rating</option>
                     {CATEGORY.map((c) => (
                       <option key={c.key} value={c.key}>
@@ -1024,68 +1586,210 @@ export default function ProfilePage() {
               <div className="mt-6 space-y-3">
                 {sortedHistory.map((row) => {
                   const isRateMode = row.sessionId.startsWith("rate:");
+                  const detailMode = isRateMode ? "rate" : "blind";
+                  const returnTo = encodeURIComponent("/profile");
+                  const ownerQuery = authUserId
+                    ? `&owner=${encodeURIComponent(authUserId)}`
+                    : "";
+                  const detailHref = `/history/${detailMode}/${row.id}?returnTo=${returnTo}${ownerQuery}`;
+                  const activeCategoryScore = activeSortCategory
+                    ? row.byCat[activeSortCategory.key]
+                    : null;
+                  const activeCategoryScoreText =
+                    typeof activeCategoryScore === "number"
+                      ? Number.isInteger(activeCategoryScore)
+                        ? activeCategoryScore.toFixed(0)
+                        : activeCategoryScore.toFixed(1)
+                      : "--";
+                  const cardScoreText = activeSortCategory
+                    ? `${activeCategoryScoreText}/${activeSortCategory.max}`
+                    : isRateMode
+                      ? row.total.toFixed(1)
+                      : row.total.toFixed(0);
+                  const cardScoreLabel = activeSortCategory
+                    ? activeSortCategory.label
+                    : "Overall / 100";
 
                   return (
-                    <div key={row.id} className="rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4">
+                    <Link
+                      key={row.id}
+                      href={detailHref}
+                      className="block rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                    >
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                         <div>
                           <div className="font-semibold">{row.pourLabel}</div>
                           <div className="text-xs text-zinc-500 mt-1">
-                            {row.sessionTitle} - Rated {isRateMode ? formatDateTime(row.createdAt) : formatDate(row.createdAt)}
+                            {row.sessionTitle} - Rated{" "}
+                            {isRateMode
+                              ? formatDateTime(row.createdAt)
+                              : formatDate(row.createdAt)}
                           </div>
                           {row.notes ? (
                             <div className="mt-2 text-sm text-zinc-600">
-                              <span className="font-semibold text-zinc-800">Notes:</span> {row.notes}
+                              <span className="font-semibold text-zinc-800">Notes:</span>{" "}
+                              {row.notes}
                             </div>
                           ) : null}
                         </div>
-                        <div className="flex items-start gap-3">
-                          <div className="text-right">
-                            <div className="text-2xl font-extrabold tabular-nums">
-                              {isRateMode ? row.total.toFixed(1) : row.total.toFixed(0)}
-                            </div>
-                            <div className="text-xs text-zinc-500">Overall / 100</div>
+                        <div className="text-right">
+                          <div className="text-2xl font-extrabold tabular-nums">
+                            {cardScoreText}
                           </div>
-
-                          {isRateMode ? (
-                            <Link
-                              href={`/rate/${row.id}`}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                            >
-                              View
-                            </Link>
-                          ) : (
-                            <button
-                              onClick={() => handleViewBlindRating(row)}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                            >
-                              View
-                            </button>
-                          )}
-
-                          {isRateMode ? (
-                            <button
-                              onClick={() => handleDeleteRateRating(row.id, row.pourLabel)}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-zinc-50"
-                            >
-                              Delete
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleDeleteRating(row)}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-zinc-50"
-                            >
-                              Delete
-                            </button>
-                          )}
-
+                          <div className="text-xs text-zinc-500">{cardScoreLabel}</div>
                         </div>
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
             )}
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
+            <div className="text-sm text-zinc-500">Public profile</div>
+            <div className="mt-2 text-lg font-semibold text-zinc-900">
+              Leaderboard visibility
+            </div>
+            <div className="mt-2 text-sm text-zinc-500">
+              For beta, public profiles default to on. Your public profile only exposes your display name and aggregated leaderboard stats.
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
+              <label className="block">
+                <span className="block text-sm font-semibold text-zinc-800">
+                  Public display name
+                </span>
+                <input
+                  value={publicProfileDisplayName}
+                  onChange={(e) => setPublicProfileDisplayName(e.target.value)}
+                  readOnly={!isOwner}
+                  disabled={!isOwner}
+                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 disabled:bg-zinc-100 disabled:text-zinc-500"
+                  placeholder="Display name"
+                />
+              </label>
+
+              <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={publicProfileIsPublic}
+                  onChange={(e) => setPublicProfileIsPublic(e.target.checked)}
+                  className="h-4 w-4 accent-zinc-900"
+                />
+                <span className="text-sm font-semibold text-zinc-800">
+                  Show on public leaderboard
+                </span>
+              </label>
+            </div>
+
+            {!isOwner ? (
+              <div className="mt-3 text-xs text-zinc-500">
+                Display name is locked after setup. Only the admin can change
+                it.
+              </div>
+            ) : null}
+
+            {publicProfileError ? (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {publicProfileError}
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={handleSavePublicProfile}
+                disabled={savingPublicProfile}
+                className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-5 py-3 font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+              >
+                {savingPublicProfile ? "Saving..." : "Save Public Profile"}
+              </button>
+
+              <Link
+                href="/leaderboard"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                View Leaderboard
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
+            <div className="text-sm text-zinc-500">Import Whiskey Collection</div>
+            <div className="mt-2 text-lg font-semibold text-zinc-900">
+              Upload your collection CSV
+            </div>
+            <div className="mt-2 text-sm text-zinc-500">
+              Use the template, then upload your file. Empty rows are ignored
+              and duplicate entries are skipped or safely enriched.
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              Expected columns: Name, Size, Category, Subcategory, Proof,
+              Rarity, Distillery, MSRP, Secondary, Paid, Status, Notes
+            </div>
+
+            <form onSubmit={handleImportCollectionCsv} className="mt-4 space-y-3">
+              <input
+                name="file"
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setCollectionFile(e.target.files?.[0] || null)}
+                className="block w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900"
+              />
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="submit"
+                  disabled={importingCollection}
+                  className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                >
+                  {importingCollection ? "Uploading..." : "Upload CSV"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadCollectionTemplate}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                >
+                  Download Template
+                </button>
+              </div>
+            </form>
+
+            {collectionImportError ? (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {collectionImportError}
+              </div>
+            ) : null}
+
+            {collectionImportMessage ? (
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3 text-sm text-zinc-700">
+                {collectionImportMessage}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
+            <div className="text-sm text-zinc-500">Account</div>
+            <div className="mt-2 font-semibold text-zinc-900">
+              {userEmail || "Signed-in user"}
+            </div>
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  setSigningOut(true);
+                  const authClient = createSupabaseBrowserClient();
+                  await authClient.auth.signOut();
+                  window.location.href = "/login?message=Signed%20out.";
+                }}
+                disabled={signingOut}
+                className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
+              >
+                {signingOut ? "Signing Out..." : "Sign Out"}
+              </button>
+            </div>
           </div>
 
 

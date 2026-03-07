@@ -12,6 +12,7 @@ type ParticipantRow = {
   id: string;
   session_id: string;
   display_name: string;
+  user_id: string | null;
 };
 
 type ScoreRow = {
@@ -164,16 +165,38 @@ export default async function PublicUserProfilePage({
   const rateModeRatingCount = toNumber(publicRateSummary?.rating_count);
   const rateModeAverage = toNumber(publicRateSummary?.avg_total_score);
 
-  const { data: participantsData, error: participantsError } = await supabase
-    .from("participants")
-    .select("id,session_id,display_name")
-    .eq("display_name", displayName);
+  const [
+    { data: ownedParticipantsData, error: ownedParticipantsError },
+    { data: legacyParticipantsData, error: legacyParticipantsError },
+  ] = await Promise.all([
+    supabase
+      .from("participants")
+      .select("id,session_id,display_name,user_id")
+      .eq("user_id", params.id),
+    supabase
+      .from("participants")
+      .select("id,session_id,display_name,user_id")
+      .eq("display_name", displayName)
+      .is("user_id", null),
+  ]);
 
-  if (participantsError) {
-    throw participantsError;
+  if (ownedParticipantsError) {
+    throw ownedParticipantsError;
   }
 
-  const participants = (participantsData || []) as ParticipantRow[];
+  if (legacyParticipantsError) {
+    throw legacyParticipantsError;
+  }
+
+  const participantMap = new Map<string, ParticipantRow>();
+  for (const participant of [
+    ...((ownedParticipantsData || []) as ParticipantRow[]),
+    ...((legacyParticipantsData || []) as ParticipantRow[]),
+  ]) {
+    participantMap.set(participant.id, participant);
+  }
+
+  const participants = [...participantMap.values()];
 
   let history: HistoryRow[] = [];
 
@@ -298,15 +321,21 @@ export default async function PublicUserProfilePage({
     ];
   }
 
-  const blindOverallAverage = avg(history.map((row) => row.total));
   const blindRatedCount = history.length;
+  const blindTotal = history.reduce((sum, row) => sum + row.total, 0);
+  const summaryRatedCount = blindRatedCount + rateModeRatingCount;
   const summaryAverage =
-    blindRatedCount > 0 ? blindOverallAverage : rateModeAverage;
-  const summaryRatedCount =
-    blindRatedCount > 0 ? blindRatedCount : rateModeRatingCount;
-  const sessionCount = new Set(history.map((row) => row.sessionId)).size;
-  const topFive = [...history].sort((a, b) => b.total - a.total).slice(0, 5);
-  const bottomFive = [...history].sort((a, b) => a.total - b.total).slice(0, 5);
+    summaryRatedCount > 0
+      ? (blindTotal + rateModeAverage * rateModeRatingCount) / summaryRatedCount
+      : 0;
+  const sessionCount =
+    new Set(history.map((row) => row.sessionId)).size +
+    (rateModeRatingCount > 0 ? 1 : 0);
+  const rankableHistory = [...history, ...rateHistory].filter(
+    (row) => !row.sessionId.startsWith("rate-summary:")
+  );
+  const topFive = [...rankableHistory].sort((a, b) => b.total - a.total).slice(0, 5);
+  const bottomFive = [...rankableHistory].sort((a, b) => a.total - b.total).slice(0, 5);
   const categoryAverages = Object.fromEntries(
     CATEGORY.map((category) => [
       category.key,
@@ -399,7 +428,7 @@ export default async function PublicUserProfilePage({
                 </div>
               ) : null}
 
-              {history.length > 0 ? (
+              {rankableHistory.length > 0 ? (
                 <>
                   <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="rounded-3xl border border-zinc-200 p-5">
@@ -447,27 +476,29 @@ export default async function PublicUserProfilePage({
                     </div>
                   </div>
 
-                  <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-                    <div className="text-sm text-zinc-500">Personal Averages By Category</div>
-                    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-                      {CATEGORY.map((category) => (
-                        <div
-                          key={category.key}
-                          className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3"
-                        >
-                          <div className="text-xs text-zinc-500">
-                            {category.label}
+                  {history.length > 0 ? (
+                    <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
+                      <div className="text-sm text-zinc-500">Personal Averages By Category</div>
+                      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                        {CATEGORY.map((category) => (
+                          <div
+                            key={category.key}
+                            className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3"
+                          >
+                            <div className="text-xs text-zinc-500">
+                              {category.label}
+                            </div>
+                            <div className="text-2xl font-extrabold tabular-nums">
+                              {categoryAverages[category.key].toFixed(1)}
+                              <span className="text-xs font-semibold text-zinc-400">
+                                /{category.max}
+                              </span>
+                            </div>
                           </div>
-                          <div className="text-2xl font-extrabold tabular-nums">
-                            {categoryAverages[category.key].toFixed(1)}
-                            <span className="text-xs font-semibold text-zinc-400">
-                              /{category.max}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </>
               ) : null}
             </>
@@ -525,41 +556,58 @@ export default async function PublicUserProfilePage({
               <div className="mt-6 space-y-3">
                 {sortedHistory.map((row) => {
                   const isRateMode = row.sessionId.startsWith("rate:");
+                  const isRateSummary = row.sessionId.startsWith("rate-summary:");
+                  const returnTo = encodeURIComponent(`/leaderboard/${params.id}`);
+                  const detailHref = `/history/${isRateMode ? "rate" : "blind"}/${row.id}?owner=${encodeURIComponent(params.id)}&returnTo=${returnTo}`;
 
-                  return (
-                    <div
-                      key={`${row.sessionId}-${row.id}`}
-                      className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4"
-                    >
-                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                        <div>
-                          <div className="font-semibold">{row.pourLabel}</div>
-                          <div className="mt-1 text-xs text-zinc-500">
-                            {row.sessionTitle} - Rated{" "}
-                            {isRateMode
-                              ? formatDateTime(row.createdAt)
-                              : formatDate(row.createdAt)}
-                          </div>
-                          {row.notes ? (
-                            <div className="mt-2 text-sm text-zinc-600">
-                              <span className="font-semibold text-zinc-800">
-                                Notes:
-                              </span>{" "}
-                              {row.notes}
-                            </div>
-                          ) : null}
+                  const cardContent = (
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="font-semibold">{row.pourLabel}</div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          {row.sessionTitle} - Rated{" "}
+                          {isRateMode
+                            ? formatDateTime(row.createdAt)
+                            : formatDate(row.createdAt)}
                         </div>
+                        {row.notes ? (
+                          <div className="mt-2 text-sm text-zinc-600">
+                            <span className="font-semibold text-zinc-800">
+                              Notes:
+                            </span>{" "}
+                            {row.notes}
+                          </div>
+                        ) : null}
+                      </div>
 
-                        <div className="text-right">
-                          <div className="text-2xl font-extrabold tabular-nums">
-                            {isRateMode
-                              ? row.total.toFixed(1)
-                              : row.total.toFixed(0)}
-                          </div>
-                          <div className="text-xs text-zinc-500">Overall / 100</div>
+                      <div className="text-right">
+                        <div className="text-2xl font-extrabold tabular-nums">
+                          {isRateMode
+                            ? row.total.toFixed(1)
+                            : row.total.toFixed(0)}
                         </div>
+                        <div className="text-xs text-zinc-500">Overall / 100</div>
                       </div>
                     </div>
+                  );
+
+                  return (
+                    isRateSummary ? (
+                      <div
+                        key={`${row.sessionId}-${row.id}`}
+                        className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4"
+                      >
+                        {cardContent}
+                      </div>
+                    ) : (
+                      <Link
+                        key={`${row.sessionId}-${row.id}`}
+                        href={detailHref}
+                        className="block rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                      >
+                        {cardContent}
+                      </Link>
+                    )
                   );
                 })}
               </div>

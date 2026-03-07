@@ -127,12 +127,20 @@ export default async function AdminTestersPage({
               </p>
             </div>
 
-            <Link
-              href="/profile"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            >
-              Back to Profile
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/admin/library-import"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                Import Collection CSV
+              </Link>
+              <Link
+                href="/profile"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                Back to Profile
+              </Link>
+            </div>
           </div>
 
           {message ? (

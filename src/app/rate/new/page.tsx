@@ -4,14 +4,46 @@ import {
   getDefaultRateTemplateWithItems,
   type RateTemplateItem,
 } from "@/lib/rate/default-template";
+import {
+  mapWhiskeyRow,
+  WHISKEY_SELECT_COLUMNS,
+} from "@/lib/whiskey/schema";
 import { RateNewForm } from "./rate-new-form";
 
-type WhiskeyRow = {
-  id: string;
-  name: string;
-  distillery: string | null;
-  proof: number | null;
-};
+async function loadWhiskeysForRate(
+  supabase: ReturnType<typeof createSupabaseServerClient>
+) {
+  const selectAttempts = [
+    WHISKEY_SELECT_COLUMNS,
+    "id,name,distillery,proof,bottle_size,category,subcategory,rarity,msrp,secondary,paid,status,notes,identity_key",
+    "id,name,distillery,proof,age",
+    "id,name,distillery,proof",
+    "id,name",
+  ];
+
+  let lastError: Error | null = null;
+
+  for (const selectColumns of selectAttempts) {
+    const { data, error } = await supabase
+      .from("whiskeys")
+      .select(selectColumns)
+      .order("created_at", { ascending: false });
+
+    if (!error) {
+      return ((data || []) as unknown as Record<string, unknown>[]).map(
+        mapWhiskeyRow
+      );
+    }
+
+    lastError = error;
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return [];
+}
 
 export default async function RateNewPage() {
   const supabase = createSupabaseServerClient();
@@ -23,31 +55,11 @@ export default async function RateNewPage() {
     redirect("/login?redirectTo=%2Frate%2Fnew");
   }
 
-  const [{ data: whiskeysData, error: whiskeysError }, templateResult] =
+  const [whiskeys, templateResult] =
     await Promise.all([
-      supabase
-        .from("whiskeys")
-        .select("id,name,distillery,proof")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false }),
+      loadWhiskeysForRate(supabase),
       getDefaultRateTemplateWithItems(supabase, user.id),
     ]);
-
-  if (whiskeysError) {
-    throw whiskeysError;
-  }
-
-  const whiskeys = ((whiskeysData || []) as WhiskeyRow[]).map((whiskey) => ({
-    id: whiskey.id,
-    name: whiskey.name,
-    distillery: whiskey.distillery ?? null,
-    proof:
-      typeof whiskey.proof === "number"
-        ? whiskey.proof
-        : whiskey.proof === null
-        ? null
-        : Number(whiskey.proof ?? 0),
-  }));
 
   const templateItems = [...templateResult.items].sort(
     (a: RateTemplateItem, b: RateTemplateItem) => a.sortOrder - b.sortOrder

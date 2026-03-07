@@ -62,12 +62,26 @@ export default async function RatePage({ searchParams }: RatePageProps) {
               </p>
             </div>
 
-            <Link
-              href="/rate/new"
-              className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800"
-            >
-              Rate Now
-            </Link>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Link
+                href="/rate/new"
+                className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800"
+              >
+                Rate Now
+              </Link>
+              <Link
+                href="/profile"
+                className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
+              >
+                Profile
+              </Link>
+              <Link
+                href="/"
+                className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
+              >
+                Home
+              </Link>
+            </div>
           </div>
 
           <div className="mt-6">
@@ -100,7 +114,7 @@ export default async function RatePage({ searchParams }: RatePageProps) {
                 {ratings.map((rating) => (
                   <Link
                     key={rating.id}
-                    href={`/rate/${rating.id}`}
+                    href={`/history/rate/${rating.id}?returnTo=${encodeURIComponent("/rate")}`}
                     className="block rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4 hover:bg-zinc-50"
                   >
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

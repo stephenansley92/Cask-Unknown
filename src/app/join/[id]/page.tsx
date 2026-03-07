@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   ACTIVE_PROFILE_STORAGE_KEY,
   getProfileOptions,
@@ -21,12 +22,15 @@ type ParticipantRow = {
   id: string;
   session_id: string;
   display_name: string;
+  user_id?: string | null;
   created_at?: string;
 };
 
 function storageKey(sessionId: string) {
   return `cask_unknown_participant_${sessionId}`;
 }
+
+const OWNER_EMAIL = "stephen.ansley92@gmail.com";
 
 export default function JoinPage() {
   const params = useParams<{ id: string }>();
@@ -41,6 +45,9 @@ export default function JoinPage() {
   const [selectedProfile, setSelectedProfile] = useState("");
   const [customProfileName, setCustomProfileName] = useState("");
   const [profileOptions, setProfileOptions] = useState<string[]>([]);
+  const [lockedProfileName, setLockedProfileName] = useState("");
+  const [authUserId, setAuthUserId] = useState("");
+  const [isOwner, setIsOwner] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [existingParticipant, setExistingParticipant] =
@@ -57,6 +64,54 @@ export default function JoinPage() {
         setLoading(true);
         setError("");
         setProfileOptions(getProfileOptions());
+
+        const authClient = createSupabaseBrowserClient();
+        const {
+          data: { user },
+          error: userError,
+        } = await authClient.auth.getUser();
+
+        if (userError) {
+          setError(userError.message);
+          setLoading(false);
+          return;
+        }
+
+        const ownerMatch =
+          (user?.email || "").trim().toLowerCase() === OWNER_EMAIL;
+        setIsOwner(ownerMatch);
+        setAuthUserId(user?.id || "");
+
+        let enforcedProfileName = "";
+
+        if (user && !ownerMatch) {
+          const { data: profileData, error: profileError } = await authClient
+            .from("user_profiles")
+            .select("display_name")
+            .eq("user_id", user.id)
+            .maybeSingle();
+
+          if (profileError) {
+            setError(profileError.message);
+            setLoading(false);
+            return;
+          }
+
+          if (!profileData) {
+            router.push("/profile/setup");
+            return;
+          }
+
+          enforcedProfileName =
+            (profileData.display_name as string | null)?.trim() ||
+            user.email ||
+            "Profile";
+          setLockedProfileName(enforcedProfileName);
+          setSelectedProfile(enforcedProfileName);
+          setCustomProfileName("");
+        } else {
+          setLockedProfileName("");
+        }
 
         if (!sessionId) {
           setError("Missing session id.");
@@ -104,14 +159,27 @@ export default function JoinPage() {
 
         const { data: p, error: pErr } = await supabase
           .from("participants")
-          .select("id,session_id,display_name,created_at")
+          .select("id,session_id,display_name,user_id,created_at")
           .eq("id", participantId)
           .single();
 
         if (!pErr && p && (p as ParticipantRow).session_id === sessionId) {
           const row = p as ParticipantRow;
-          setExistingParticipant(row);
-          setSelectedProfile(row.display_name || "");
+          const hasOwnerMismatch =
+            !ownerMatch && user?.id && row.user_id && row.user_id !== user.id;
+          const hasLockedProfileMismatch =
+            !ownerMatch &&
+            enforcedProfileName &&
+            row.display_name !== enforcedProfileName;
+
+          if (hasOwnerMismatch || hasLockedProfileMismatch) {
+            if (typeof window !== "undefined") {
+              window.localStorage.removeItem(storageKey(sessionId));
+            }
+          } else {
+            setExistingParticipant(row);
+            setSelectedProfile(row.display_name || "");
+          }
         } else if (typeof window !== "undefined") {
           window.localStorage.removeItem(storageKey(sessionId));
         }
@@ -124,7 +192,7 @@ export default function JoinPage() {
     };
 
     run();
-  }, [sessionId]);
+  }, [router, sessionId]);
 
   const continueAsExisting = () => {
     if (typeof window !== "undefined" && existingParticipant?.display_name) {
@@ -141,39 +209,109 @@ export default function JoinPage() {
     try {
       if (!sessionId) return;
 
-      const clean = customProfileName.trim() || selectedProfile.trim();
+      const enforcedProfile = lockedProfileName.trim();
+      const clean = enforcedProfile || customProfileName.trim() || selectedProfile.trim();
 
       if (!clean) {
         setError("Please choose or enter a profile.");
         return;
       }
 
-      setSubmitting(true);
-      setError("");
-
-      const { data: existing, error: existingErr } = await supabase
-        .from("participants")
-        .select("id,session_id,display_name,created_at")
-        .eq("session_id", sessionId)
-        .eq("display_name", clean)
-        .maybeSingle();
-
-      if (existingErr) {
-        setError(existingErr.message);
-        setSubmitting(false);
+      if (enforcedProfile && clean !== enforcedProfile) {
+        setError("Profile name is locked for this account.");
         return;
       }
 
-      let row = existing as ParticipantRow | null;
+      setSubmitting(true);
+      setError("");
+
+      let row: ParticipantRow | null = null;
+
+      if (authUserId && !isOwner) {
+        const { data: ownedParticipant, error: ownedParticipantError } =
+          await supabase
+            .from("participants")
+            .select("id,session_id,display_name,user_id,created_at")
+            .eq("session_id", sessionId)
+            .eq("user_id", authUserId)
+            .maybeSingle();
+
+        if (ownedParticipantError) {
+          setError(ownedParticipantError.message);
+          setSubmitting(false);
+          return;
+        }
+
+        row = (ownedParticipant as ParticipantRow | null) || null;
+
+        if (!row) {
+          const { data: legacyParticipant, error: legacyParticipantError } =
+            await supabase
+              .from("participants")
+              .select("id,session_id,display_name,user_id,created_at")
+              .eq("session_id", sessionId)
+              .eq("display_name", clean)
+              .is("user_id", null)
+              .maybeSingle();
+
+          if (legacyParticipantError) {
+            setError(legacyParticipantError.message);
+            setSubmitting(false);
+            return;
+          }
+
+          if (legacyParticipant) {
+            const { data: claimedParticipant, error: claimError } = await supabase
+              .from("participants")
+              .update({ user_id: authUserId })
+              .eq("id", legacyParticipant.id as string)
+              .select("id,session_id,display_name,user_id,created_at")
+              .single();
+
+            if (claimError) {
+              setError(claimError.message);
+              setSubmitting(false);
+              return;
+            }
+
+            row = claimedParticipant as ParticipantRow;
+          }
+        }
+      } else {
+        const { data: existing, error: existingErr } = await supabase
+          .from("participants")
+          .select("id,session_id,display_name,user_id,created_at")
+          .eq("session_id", sessionId)
+          .eq("display_name", clean)
+          .maybeSingle();
+
+        if (existingErr) {
+          setError(existingErr.message);
+          setSubmitting(false);
+          return;
+        }
+
+        row = (existing as ParticipantRow | null) || null;
+      }
 
       if (!row) {
+        const insertPayload: {
+          session_id: string;
+          display_name: string;
+          user_id?: string;
+        } = {
+          session_id: sessionId,
+          display_name: clean,
+        };
+
+        if (authUserId && !isOwner) {
+          insertPayload.user_id = authUserId;
+        }
+
         const { data: inserted, error: insErr } = await supabase
           .from("participants")
-          .insert({
-            session_id: sessionId,
-            display_name: clean,
-          })
-          .select("id,session_id,display_name,created_at")
+          .insert(insertPayload)
+          .select("id,session_id,display_name,user_id,created_at")
           .single();
 
         if (insErr) {
@@ -278,47 +416,62 @@ export default function JoinPage() {
             </div>
           ) : (
             <div className="mt-6">
-              <label className="block text-sm font-semibold text-zinc-800">
-                Your profile
-              </label>
+              {lockedProfileName ? (
+                <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4">
+                  <div className="text-xs text-zinc-500">Your profile</div>
+                  <div className="mt-1 font-semibold text-zinc-900">
+                    {lockedProfileName}
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">
+                    Profile names are locked after setup. Ask the admin to
+                    change it.
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    Your profile
+                  </label>
 
-              <select
-                value={selectedProfile}
-                onChange={(e) => {
-                  setSelectedProfile(e.target.value);
-                  if (e.target.value) {
-                    setCustomProfileName("");
-                  }
-                }}
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
-              >
-                <option value="">Select a saved profile</option>
-                {profileOptions.map((profile) => (
-                  <option key={profile} value={profile}>
-                    {profile}
-                  </option>
-                ))}
-              </select>
+                  <select
+                    value={selectedProfile}
+                    onChange={(e) => {
+                      setSelectedProfile(e.target.value);
+                      if (e.target.value) {
+                        setCustomProfileName("");
+                      }
+                    }}
+                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                  >
+                    <option value="">Select a saved profile</option>
+                    {profileOptions.map((profile) => (
+                      <option key={profile} value={profile}>
+                        {profile}
+                      </option>
+                    ))}
+                  </select>
 
-              <div className="mt-3 text-center text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                Or
-              </div>
+                  <div className="mt-3 text-center text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                    Or
+                  </div>
 
-              <label className="mt-3 block text-sm font-semibold text-zinc-800">
-                Type a new profile name
-              </label>
+                  <label className="mt-3 block text-sm font-semibold text-zinc-800">
+                    Type a new profile name
+                  </label>
 
-              <input
-                value={customProfileName}
-                onChange={(e) => {
-                  setCustomProfileName(e.target.value);
-                  if (e.target.value) {
-                    setSelectedProfile("");
-                  }
-                }}
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
-                placeholder="Select or type a new profile name"
-              />
+                  <input
+                    value={customProfileName}
+                    onChange={(e) => {
+                      setCustomProfileName(e.target.value);
+                      if (e.target.value) {
+                        setSelectedProfile("");
+                      }
+                    }}
+                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                    placeholder="Select or type a new profile name"
+                  />
+                </>
+              )}
 
               <button
                 onClick={submit}
@@ -329,8 +482,9 @@ export default function JoinPage() {
               </button>
 
               <div className="mt-4 text-xs text-zinc-500">
-                Select a saved profile or type a new one. New profiles are
-                saved automatically on this phone.
+                {lockedProfileName
+                  ? "Your account profile is used automatically for blind sessions."
+                  : "Select a saved profile or type a new one. New profiles are saved automatically on this phone."}
               </div>
             </div>
           )}
