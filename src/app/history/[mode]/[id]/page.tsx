@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { loadPublicRateHistoryRecords } from "@/lib/profile-history/read-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import DeleteEntryForm from "./delete-entry-form";
 
@@ -453,55 +454,95 @@ export default async function HistoryDetailPage({
   let canDelete = false;
 
   if (mode === "rate") {
-    const rating = await loadRateRecord(supabase, entryId);
-    if (!rating) {
-      notFound();
-    }
+    const shouldUsePublicRatePath = Boolean(requestedOwner && requestedOwner !== user.id);
+    if (shouldUsePublicRatePath) {
+      const publicRateRows = await loadPublicRateHistoryRecords(
+        supabase,
+        requestedOwner
+      );
+      const publicRating = publicRateRows.find((row) => row.id === entryId) || null;
 
-    const ownerUserId = rating.userId;
-    if (requestedOwner && requestedOwner !== ownerUserId) {
-      notFound();
-    }
-
-    const ownerView = ownerUserId === user.id;
-    if (!ownerView) {
-      const publicAllowed = await canViewPublicProfile(supabase, ownerUserId);
-      if (!publicAllowed) {
+      if (!publicRating || publicRating.userId !== requestedOwner) {
         notFound();
       }
+
+      const whiskeyMeta = [
+        publicRating.whiskeyDistillery || null,
+        publicRating.whiskeyProof !== null && publicRating.whiskeyProof !== undefined
+          ? `${Number(publicRating.whiskeyProof)} proof`
+          : null,
+        publicRating.whiskeyAge ? `${publicRating.whiskeyAge} age` : null,
+      ].filter(Boolean);
+
+      title = publicRating.whiskeyName;
+      subtitle = "Rate Mode";
+      detailsLine = [
+        whiskeyMeta.length ? whiskeyMeta.join(" - ") : "",
+        `Rated ${formatRatedAt(publicRating.createdAt)}`,
+      ]
+        .filter(Boolean)
+        .join(" - ");
+      totalScore = Number(publicRating.totalScore ?? 0);
+      notes = publicRating.notes;
+      categoryItems = BLIND_CATEGORY.map((category) => ({
+        id: category.key,
+        itemKey: category.key,
+        label: category.label,
+        maxPoints: category.max,
+        score: Number(publicRating.byCat[category.key] ?? 0),
+      }));
+      canDelete = false;
+    } else {
+      const rating = await loadRateRecord(supabase, entryId);
+      if (!rating) {
+        notFound();
+      }
+
+      const ownerUserId = rating.userId;
+      if (requestedOwner && requestedOwner !== ownerUserId) {
+        notFound();
+      }
+
+      const ownerView = ownerUserId === user.id;
+      if (!ownerView) {
+        const publicAllowed = await canViewPublicProfile(supabase, ownerUserId);
+        if (!publicAllowed) {
+          notFound();
+        }
+      }
+
+      const templateItems = await loadTemplateItems(supabase, rating.templateId);
+      categoryItems = templateItems.map((item) => ({
+        id: item.id,
+        itemKey: item.itemKey,
+        label: item.label,
+        maxPoints: item.maxPoints,
+        score: Number(rating.scoreMap[item.id] ?? 0),
+      }));
+
+      const whiskey = getWhiskeyInfo(rating.whiskey);
+      const whiskeyMeta = [
+        whiskey.distillery || null,
+        whiskey.proof !== null && whiskey.proof !== undefined
+          ? `${Number(whiskey.proof)} proof`
+          : null,
+        whiskey.age !== null && whiskey.age !== undefined && String(whiskey.age).trim()
+          ? `${String(whiskey.age).trim()} age`
+          : null,
+      ].filter(Boolean);
+
+      title = whiskey.name;
+      subtitle = "Rate Mode";
+      detailsLine = [
+        whiskeyMeta.length ? whiskeyMeta.join(" - ") : "",
+        `Rated ${formatRatedAt(rating.ratedAt)}`,
+      ]
+        .filter(Boolean)
+        .join(" - ");
+      totalScore = Number(rating.totalScore ?? 0);
+      notes = (rating.notes || "").trim();
+      canDelete = ownerView;
     }
-
-    const templateItems = await loadTemplateItems(supabase, rating.templateId);
-    categoryItems = templateItems.map((item) => ({
-      id: item.id,
-      itemKey: item.itemKey,
-      label: item.label,
-      maxPoints: item.maxPoints,
-      score: Number(rating.scoreMap[item.id] ?? 0),
-    }));
-
-    const whiskey = getWhiskeyInfo(rating.whiskey);
-    const whiskeyMeta = [
-      whiskey.distillery || null,
-      whiskey.proof !== null && whiskey.proof !== undefined
-        ? `${Number(whiskey.proof)} proof`
-        : null,
-      whiskey.age !== null && whiskey.age !== undefined && String(whiskey.age).trim()
-        ? `${String(whiskey.age).trim()} age`
-        : null,
-    ].filter(Boolean);
-
-    title = whiskey.name;
-    subtitle = "Rate Mode";
-    detailsLine = [
-      whiskeyMeta.length ? whiskeyMeta.join(" - ") : "",
-      `Rated ${formatRatedAt(rating.ratedAt)}`,
-    ]
-      .filter(Boolean)
-      .join(" - ");
-    totalScore = Number(rating.totalScore ?? 0);
-    notes = (rating.notes || "").trim();
-    canDelete = ownerView;
   } else {
     const score = await loadBlindRecord(supabase, entryId);
     if (!score) {
