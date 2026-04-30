@@ -53,11 +53,11 @@ export default async function LeaderboardPage() {
         <div className="mx-auto max-w-4xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-sm text-zinc-500">Cask Unknown</div>
           <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-            Users
+            Community
           </h1>
           <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-4">
             <div className="font-semibold text-red-700">
-              Could not load users
+              Could not load community
             </div>
             <div className="mt-1 text-sm text-red-600">{error.message}</div>
           </div>
@@ -211,7 +211,7 @@ export default async function LeaderboardPage() {
             <div>
               <div className="text-sm text-zinc-500">Cask Unknown</div>
               <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-                Users
+                Community
               </h1>
               <p className="mt-2 text-sm text-zinc-500">
                 Public profiles only. Click a name to open that user&apos;s public profile.
@@ -230,7 +230,7 @@ export default async function LeaderboardPage() {
             <div className="mt-6 rounded-3xl border border-zinc-200 p-6 text-center">
               <div className="text-lg font-semibold">No public profiles yet</div>
               <div className="mt-2 text-sm text-zinc-500">
-                Public users will appear here once they have a public profile.
+                Community members will appear here once they have a public profile.
               </div>
             </div>
           ) : (

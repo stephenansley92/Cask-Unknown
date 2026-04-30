@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   buildWhiskeyIdentityKey,
   buildWhiskeyInsertPayload,
@@ -105,6 +105,7 @@ export default function HostPoursPage() {
   const searchParams = useSearchParams();
   const sessionId = params?.id;
   const hostKey = searchParams.get("key") || "";
+  const supabase = createSupabaseBrowserClient();
 
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<SessionRow | null>(null);
@@ -312,13 +313,11 @@ export default function HostPoursPage() {
     setPours((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   };
 
-  const savePour = async (pourId: string) => {
-    const row = pours.find((item) => item.id === pourId);
-    if (!row) return;
+  const savePour = async (row: PourRow) => {
     const withWhiskeyUpdate = await supabase
       .from("pours")
       .update({ bottle_name: row.bottle_name, whiskey_id: row.whiskey_id })
-      .eq("id", pourId);
+      .eq("id", row.id);
 
     if (!withWhiskeyUpdate.error) {
       showSaved();
@@ -328,7 +327,7 @@ export default function HostPoursPage() {
     const fallbackUpdate = await supabase
       .from("pours")
       .update({ bottle_name: row.bottle_name })
-      .eq("id", pourId);
+      .eq("id", row.id);
 
     if (fallbackUpdate.error) {
       setError(getErrorMessage(fallbackUpdate.error));
@@ -411,13 +410,18 @@ export default function HostPoursPage() {
   };
 
   const selectWhiskeyForPour = async (pour: PourRow, whiskey: WhiskeyOption | null) => {
-    const nextBottleName = whiskey?.name || null;
-    updatePour(pour.id, {
+    const nextPour: PourRow = {
+      ...pour,
       whiskey_id: whiskey?.id || null,
       whiskey_name: whiskey?.name || null,
-      bottle_name: nextBottleName,
+      bottle_name: whiskey?.name || null,
+    };
+    updatePour(pour.id, {
+      whiskey_id: nextPour.whiskey_id,
+      whiskey_name: nextPour.whiskey_name,
+      bottle_name: nextPour.bottle_name,
     });
-    await savePour(pour.id);
+    await savePour(nextPour);
   };
 
   const addPour = async () => {
@@ -515,52 +519,25 @@ export default function HostPoursPage() {
           {saveHint ? <div className="text-xs text-zinc-300">{saveHint}</div> : null}
           {libraryError ? <div className="text-xs text-red-300">{libraryError}</div> : null}
 
+          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4">
+            <div className="font-semibold text-zinc-100">Shared whiskey library</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Search the shared library, then open a pour below to assign the match.
+              Create a new whiskey only when the bottle is missing from the library.
+            </div>
+            {!libraryUserId ? (
+              <div className="mt-2 text-xs text-amber-300">
+                Sign in on this device to load and use the shared whiskey library.
+              </div>
+            ) : null}
+          </div>
+
           <input
             value={librarySearch}
             onChange={(e) => setLibrarySearch(e.target.value)}
-            placeholder="Search whiskey library"
+            placeholder="Search shared whiskey library"
             className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
           />
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {[
-              { key: "name", placeholder: "Name (required)" },
-              { key: "distillery", placeholder: "Distillery" },
-              { key: "proof", placeholder: "Proof" },
-              { key: "age", placeholder: "Age" },
-              { key: "bottleSize", placeholder: "Bottle size" },
-              { key: "category", placeholder: "Category" },
-              { key: "subcategory", placeholder: "Subcategory" },
-              { key: "rarity", placeholder: "Rarity" },
-              { key: "msrp", placeholder: "MSRP" },
-              { key: "secondary", placeholder: "Secondary" },
-              { key: "paid", placeholder: "Paid" },
-              { key: "status", placeholder: "Status" },
-            ].map((field) => (
-              <input
-                key={field.key}
-                value={newWhiskey[field.key as keyof WhiskeyFormValues]}
-                onChange={(e) =>
-                  updateNewWhiskey(field.key as keyof WhiskeyFormValues, e.target.value)
-                }
-                placeholder={field.placeholder}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
-              />
-            ))}
-          </div>
-          <textarea
-            value={newWhiskey.notes}
-            onChange={(e) => updateNewWhiskey("notes", e.target.value)}
-            placeholder="Notes"
-            className="w-full min-h-[86px] bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
-          />
-          <button
-            onClick={createWhiskey}
-            disabled={creatingWhiskey || !libraryUserId}
-            className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl disabled:opacity-60"
-          >
-            {creatingWhiskey ? "Creating..." : "Create Whiskey"}
-          </button>
 
           <button onClick={addPour} className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl">
             + Add Pour
@@ -586,27 +563,46 @@ export default function HostPoursPage() {
                   </button>
                   {isOpen ? (
                     <div className="px-4 pb-4 space-y-3">
+                      <div className="text-xs text-zinc-500">
+                        Matching library results for this pour
+                      </div>
                       <div className="max-h-48 overflow-y-auto space-y-2">
-                        {filteredWhiskeys.slice(0, 20).map((item) => (
-                          <button
-                            key={`${pour.id}-${item.id}`}
-                            type="button"
-                            onClick={() => selectWhiskeyForPour(pour, item)}
-                            className={[
-                              "w-full text-left rounded-xl border px-3 py-2",
-                              pour.whiskey_id === item.id
-                                ? "border-amber-500 text-amber-200"
-                                : "border-zinc-700 text-zinc-200",
-                            ].join(" ")}
-                          >
-                            <div className="font-semibold">{item.name}</div>
-                            <div className="text-xs text-zinc-500">
-                              {[item.distillery, item.proof !== null ? `${item.proof} proof` : null, item.bottleSize]
-                                .filter(Boolean)
-                                .join(" - ")}
-                            </div>
-                          </button>
-                        ))}
+                        {filteredWhiskeys.length > 0 ? (
+                          filteredWhiskeys.slice(0, 20).map((item) => (
+                            <button
+                              key={`${pour.id}-${item.id}`}
+                              type="button"
+                              onClick={() => selectWhiskeyForPour(pour, item)}
+                              className={[
+                                "w-full text-left rounded-xl border px-3 py-2",
+                                pour.whiskey_id === item.id
+                                  ? "border-amber-500 text-amber-200"
+                                  : "border-zinc-700 text-zinc-200",
+                              ].join(" ")}
+                            >
+                              <div className="font-semibold">{item.name}</div>
+                              <div className="text-xs text-zinc-500">
+                                {[
+                                  item.distillery,
+                                  item.proof !== null ? `${item.proof} proof` : null,
+                                  item.bottleSize,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" - ")}
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-3 text-xs text-zinc-500">
+                            {!libraryUserId
+                              ? "Sign in to load the shared whiskey library."
+                              : whiskeys.length === 0
+                              ? "No whiskeys are available in the shared library yet."
+                              : librarySearch.trim()
+                              ? "No whiskeys match your search."
+                              : "No whiskeys are available for selection."}
+                          </div>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -618,7 +614,12 @@ export default function HostPoursPage() {
                       <input
                         value={pour.bottle_name ?? ""}
                         onChange={(e) => updatePour(pour.id, { bottle_name: e.target.value })}
-                        onBlur={() => savePour(pour.id)}
+                        onBlur={(e) =>
+                          savePour({
+                            ...pour,
+                            bottle_name: e.currentTarget.value,
+                          })
+                        }
                         placeholder="Reveal bottle name"
                         className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200"
                       />
@@ -634,6 +635,55 @@ export default function HostPoursPage() {
                 </div>
               );
             })}
+          </div>
+
+          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4 space-y-3">
+            <div>
+              <div className="font-semibold text-zinc-100">Create missing whiskey</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Fallback only. Use this when the shared whiskey library does not already contain the bottle.
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {[
+                { key: "name", placeholder: "Name (required)" },
+                { key: "distillery", placeholder: "Distillery" },
+                { key: "proof", placeholder: "Proof" },
+                { key: "age", placeholder: "Age" },
+                { key: "bottleSize", placeholder: "Bottle size" },
+                { key: "category", placeholder: "Category" },
+                { key: "subcategory", placeholder: "Subcategory" },
+                { key: "rarity", placeholder: "Rarity" },
+                { key: "msrp", placeholder: "MSRP" },
+                { key: "secondary", placeholder: "Secondary" },
+                { key: "paid", placeholder: "Paid" },
+                { key: "status", placeholder: "Status" },
+              ].map((field) => (
+                <input
+                  key={field.key}
+                  value={newWhiskey[field.key as keyof WhiskeyFormValues]}
+                  onChange={(e) =>
+                    updateNewWhiskey(field.key as keyof WhiskeyFormValues, e.target.value)
+                  }
+                  placeholder={field.placeholder}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
+                />
+              ))}
+            </div>
+            <textarea
+              value={newWhiskey.notes}
+              onChange={(e) => updateNewWhiskey("notes", e.target.value)}
+              placeholder="Notes"
+              className="w-full min-h-[86px] bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
+            />
+            <button
+              onClick={createWhiskey}
+              disabled={creatingWhiskey || !libraryUserId}
+              className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl disabled:opacity-60"
+            >
+              {creatingWhiskey ? "Creating..." : "Create Missing Whiskey"}
+            </button>
           </div>
         </div>
       </div>

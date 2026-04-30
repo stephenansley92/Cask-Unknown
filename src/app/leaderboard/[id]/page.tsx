@@ -66,7 +66,7 @@ export default async function PublicUserProfilePage({
                 href="/leaderboard"
                 className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
               >
-                Back to Users
+                Back to Community
               </Link>
               <Link
                 href="/"
