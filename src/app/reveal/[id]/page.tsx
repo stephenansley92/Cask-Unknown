@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ConnectionBanner } from "@/components/connection-banner";
+import { Trophy, Star, ChevronLeft, ChevronRight, SkipForward, RefreshCw } from "lucide-react";
+import confetti from "canvas-confetti";
 
 type SessionRow = {
   id: string;
@@ -231,6 +233,7 @@ export default function RevealPage() {
   const [scores, setScores] = useState<ScoreRow[]>([]);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const prevStepRef = useRef<number>(-1);
 
   // Cinematic mode: step through from LAST → FIRST, then final screen
   const [cinematicStep, setCinematicStep] = useState(0);
@@ -493,9 +496,24 @@ export default function RevealPage() {
 
   // Clamp step so realtime changes don’t break the UI
   useEffect(() => {
-    const maxStep = Math.max(0, cinematicList.length); // last step is "final results"
+    const maxStep = Math.max(0, cinematicList.length);
     setCinematicStep((prev) => Math.min(prev, maxStep));
   }, [cinematicList.length]);
+
+  // Fire confetti when the #1 ranked pour is revealed
+  useEffect(() => {
+    if (prevStepRef.current === cinematicStep) return;
+    prevStepRef.current = cinematicStep;
+
+    const current = cinematicList[cinematicStep];
+    if (!current) return;
+    const rank = pourRankMeta[current.pour.id];
+    if (rank?.rank === 1) {
+      confetti({ particleCount: 160, spread: 80, origin: { y: 0.5 }, colors: ["#f59e0b", "#ffffff", "#fcd34d"] });
+      setTimeout(() => confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 }, angle: 60 }), 300);
+      setTimeout(() => confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 }, angle: 120 }), 500);
+    }
+  }, [cinematicStep, cinematicList, pourRankMeta]);
 
   const stepCount = useMemo(() => Math.max(1, cinematicList.length + 1), [cinematicList.length]); // +1 final screen
   const isFinalStep = useMemo(
@@ -621,12 +639,18 @@ export default function RevealPage() {
     return (
       <main className="min-h-screen bg-black text-white p-6 flex items-center justify-center">
         <ConnectionBanner />
-        <div className="max-w-xl w-full bg-zinc-950 border border-zinc-800 rounded-3xl p-8 text-center">
-          <div className="text-sm text-zinc-400">Cask Unknown</div>
-          <div className="text-3xl font-extrabold mt-2">{session.title}</div>
-          <div className="text-zinc-400 mt-3">Waiting for the host…</div>
+        <div className="max-w-xl w-full bg-zinc-950 border border-zinc-800 rounded-3xl p-8 text-center animate-fade-in">
+          <div className="text-sm text-zinc-400 uppercase tracking-widest">Cask Unknown</div>
+          <div className="text-4xl font-extrabold mt-3 tracking-tight">{session.title}</div>
 
-          <div className="mt-6 text-xs text-zinc-500">
+          <div className="mt-8 flex items-center justify-center gap-2">
+            <span className="bounce-dot w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
+            <span className="bounce-dot w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
+            <span className="bounce-dot w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
+          </div>
+          <div className="text-zinc-400 mt-4 text-sm">Waiting for the host…</div>
+
+          <div className="mt-6 text-xs text-zinc-500 max-w-xs mx-auto leading-relaxed">
             {isRevealReady
               ? "SOFT REVEAL is live — Packaging + Value scoring is open. BIG REVEAL is coming next."
               : "Once BIG REVEAL happens, bottle names + winners will appear here."}
@@ -698,8 +722,11 @@ export default function RevealPage() {
                       className="flex items-center justify-between gap-4 bg-black/30 border border-zinc-900 rounded-2xl px-4 py-3"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="rounded-full bg-zinc-900 border border-zinc-800 px-3 py-1 text-xs font-extrabold">
-                          {formatRankLabel(rank)}
+                        <div className={[
+                          "rounded-full px-3 py-1 text-xs font-extrabold border",
+                          rank?.rank === 1 ? "bg-amber-500/20 border-amber-500/50 text-amber-300" : "bg-zinc-900 border-zinc-800",
+                        ].join(" ")}>
+                          {rank?.rank === 1 ? "🥇" : formatRankLabel(rank)}
                         </div>
                         <div>
                           <div className="font-semibold">{displayPourName(ps.pour)}</div>
@@ -790,8 +817,9 @@ export default function RevealPage() {
               <button
                 onClick={refresh}
                 disabled={refreshing}
-                className="w-full md:w-auto px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-black font-extrabold disabled:opacity-60"
+                className="flex items-center justify-center gap-2 w-full md:w-auto px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-black font-extrabold disabled:opacity-60"
               >
+                <RefreshCw className={["w-4 h-4", refreshing ? "animate-spin" : ""].join(" ")} />
                 {refreshing ? "Refreshing…" : "Refresh Data"}
               </button>
             </div>
@@ -808,6 +836,7 @@ export default function RevealPage() {
 
   const placeMeta = ps ? pourRankMeta[ps.pour.id] : null;
   const placeFromTop = placeMeta?.rank ?? 0;
+  const isWinner = placeFromTop === 1 && pours.length > 0;
 
   const totalPlaces = Math.max(0, pours.length);
 
@@ -818,7 +847,7 @@ export default function RevealPage() {
         <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 shadow-xl">
           <div className="flex items-start justify-between gap-6">
             <div>
-              <div className="text-sm text-zinc-400">BIG REVEAL</div>
+              <div className="text-sm text-zinc-400 uppercase tracking-widest">BIG REVEAL</div>
               <div className="mt-2 text-4xl font-extrabold tracking-tight">{title}</div>
               {placeMeta?.tied ? (
                 <div className="mt-2 text-sm font-semibold text-amber-400">{formatRankLabel(placeMeta)}</div>
@@ -828,13 +857,24 @@ export default function RevealPage() {
               </div>
             </div>
 
-            {/* ✅ BIGGER place badge */}
+            {/* Place badge */}
             <div className="shrink-0">
-              <div className="bg-black/40 border border-zinc-800 rounded-3xl px-8 py-6 text-center min-w-[150px]">
+              <div className={[
+                "border rounded-3xl px-8 py-6 text-center min-w-[150px] transition-all duration-300",
+                isWinner
+                  ? "bg-amber-500/15 border-amber-500/50 shadow-[0_0_32px_rgba(245,158,11,0.3)]"
+                  : "bg-black/40 border-zinc-800",
+              ].join(" ")}>
                 <div className="text-xs uppercase tracking-widest text-zinc-400">Place</div>
-                <div className="mt-2 text-7xl leading-none font-extrabold tabular-nums">
-                  {placeFromTop || "—"}
-                </div>
+                {isWinner ? (
+                  <div className="mt-2 flex justify-center">
+                    <Trophy className="w-14 h-14 text-amber-400" strokeWidth={1.5} />
+                  </div>
+                ) : (
+                  <div className="mt-2 text-7xl leading-none font-extrabold tabular-nums">
+                    {placeFromTop || "—"}
+                  </div>
+                )}
                 <div className="mt-2 text-sm text-zinc-500">
                   of <span className="font-semibold text-zinc-300">{totalPlaces || "—"}</span>
                 </div>
@@ -842,8 +882,8 @@ export default function RevealPage() {
             </div>
           </div>
 
-          {/* Main card */}
-          <div className="mt-6 bg-black/40 border border-zinc-800 rounded-3xl p-6">
+          {/* Main card — key forces re-mount animation on each step */}
+          <div key={cinematicStep} className="mt-6 bg-black/40 border border-zinc-800 rounded-3xl p-6 animate-fade-slide-in">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
               <div>
                 <div className="text-xs text-zinc-500">Pour</div>
@@ -930,27 +970,27 @@ export default function RevealPage() {
               onClick={() => setCinematicStep((s) => Math.max(0, s - 1))}
               disabled={cinematicStep === 0}
               className={[
-                "px-5 py-3 rounded-2xl font-semibold border",
+                "flex items-center justify-center gap-2 px-5 py-3 rounded-2xl font-semibold border",
                 cinematicStep === 0
                   ? "bg-zinc-900/40 border-zinc-800 text-zinc-500 cursor-not-allowed"
                   : "bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-white",
               ].join(" ")}
             >
-              ← Prev
+              <ChevronLeft className="w-4 h-4" /> Prev
             </button>
 
             <button
               onClick={() => setCinematicStep(cinematicList.length)}
-              className="px-5 py-3 rounded-2xl font-semibold bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white"
+              className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl font-semibold bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white"
             >
-              Skip to Final Results
+              <SkipForward className="w-4 h-4" /> Skip to Final Results
             </button>
 
             <button
               onClick={() => setCinematicStep((s) => Math.min(cinematicList.length, s + 1))}
-              className="px-6 py-3 rounded-2xl font-extrabold bg-amber-500 hover:bg-amber-600 text-black"
+              className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-extrabold bg-amber-500 hover:bg-amber-600 text-black"
             >
-              Next →
+              Next <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 

@@ -24,3 +24,97 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ── Amber range slider ─────────────────────────────────────── */
+input[type="range"].cask-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+input[type="range"].cask-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #18181b;
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+input[type="range"].cask-slider::-webkit-slider-thumb:active {
+  transform: scale(1.25);
+}
+
+input[type="range"].cask-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #18181b;
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  cursor: pointer;
+}
+
+input[type="range"].cask-slider:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Animations ─────────────────────────────────────────────── */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes lockFlash {
+  0%   { background-color: #16a34a; color: #fff; }
+  60%  { background-color: #16a34a; color: #fff; }
+  100% { background-color: inherit; color: inherit; }
+}
+
+@keyframes revealPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.7); }
+  50%       { box-shadow: 0 0 0 12px rgba(245,158,11,0); }
+}
+
+@keyframes bounceDot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%            { transform: translateY(-8px); opacity: 1; }
+}
+
+.animate-fade-slide-in {
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease both;
+}
+
+.animate-lock-flash {
+  animation: lockFlash 0.7s ease forwards;
+}
+
+.animate-reveal-pulse {
+  animation: revealPulse 1.4s ease-in-out infinite;
+}
+
+.bounce-dot {
+  display: inline-block;
+  animation: bounceDot 1.2s ease-in-out infinite;
+}
+
+.bounce-dot:nth-child(2) { animation-delay: 0.2s; }
+.bounce-dot:nth-child(3) { animation-delay: 0.4s; }
