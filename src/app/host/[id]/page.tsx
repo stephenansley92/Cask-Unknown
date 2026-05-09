@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { QRCodeCanvas } from "qrcode.react";
+import { ConnectionBanner } from "@/components/connection-banner";
+import { ConfirmModal } from "@/components/confirm-modal";
 
 type SessionRow = {
   id: string;
@@ -35,6 +37,12 @@ export default function HostPage() {
   const [session, setSession] = useState<SessionRow | null>(null);
   const [error, setError] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+  const [copyHint, setCopyHint] = useState("");
 
   // gating stats
   const [poursCount, setPoursCount] = useState(0);
@@ -218,9 +226,11 @@ export default function HostPage() {
   const copy = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      alert(`${label} copied!`);
+      setCopyHint(`${label} copied!`);
+      setTimeout(() => setCopyHint(""), 2000);
     } catch {
-      alert("Could not copy. You can manually copy the link.");
+      setCopyHint("Could not copy — copy manually.");
+      setTimeout(() => setCopyHint(""), 3000);
     }
   };
 
@@ -232,11 +242,8 @@ export default function HostPage() {
     router.push(`/host/${sessionId}/tasters?key=${encodeURIComponent(hostKey)}`);
   };
 
-  const setStatus = async (newStatus: string, confirmText: string, after?: () => void) => {
+  const doSetStatus = async (newStatus: string, after?: () => void) => {
     if (!sessionId || !session) return;
-
-    const ok = confirm(confirmText);
-    if (!ok) return;
 
     try {
       setBusy(true);
@@ -244,33 +251,33 @@ export default function HostPage() {
       const { error } = await supabase.from("sessions").update({ status: newStatus }).eq("id", sessionId);
 
       if (error) {
-        alert(error.message);
+        setError(error.message);
         setBusy(false);
         return;
       }
 
-      setSession({ ...session, status: newStatus });
+      // Don't optimistically update — the realtime subscription will reflect the change.
       setBusy(false);
       after?.();
     } catch (e: any) {
-      alert(e?.message || "Unknown error.");
+      setError((e as any)?.message || "Unknown error.");
       setBusy(false);
     }
   };
 
-  const unlockAllScores = async () => {
+  const setStatus = (newStatus: string, confirmText: string, after?: () => void) => {
+    setPendingAction({
+      title: newStatus === "revealed" ? "BIG REVEAL" : newStatus === "reveal_ready" ? "SOFT REVEAL" : "Change Status",
+      message: confirmText,
+      onConfirm: () => {
+        setPendingAction(null);
+        doSetStatus(newStatus, after);
+      },
+    });
+  };
+
+  const doUnlockAllScores = async () => {
     if (!sessionId) return;
-
-    const statusNow = (session?.status || "").toLowerCase();
-    if (statusNow === "revealed") {
-      alert("Scores stay locked after BIG REVEAL.");
-      return;
-    }
-
-    const ok = confirm(
-      "Unlock all scores for this session?\n\nThis clears CORE and FINAL locks for every saved score so tasters can finish or fix missed categories before BIG REVEAL."
-    );
-    if (!ok) return;
 
     try {
       setBusy(true);
@@ -286,18 +293,35 @@ export default function HostPage() {
         .eq("session_id", sessionId);
 
       if (error) {
-        alert(error.message);
+        setError(error.message);
         setBusy(false);
         return;
       }
 
       await refreshStats();
       setBusy(false);
-      alert("All score locks cleared.");
     } catch (e: any) {
-      alert(e?.message || "Unknown error.");
+      setError((e as any)?.message || "Unknown error.");
       setBusy(false);
     }
+  };
+
+  const unlockAllScores = () => {
+    const statusNow = (session?.status || "").toLowerCase();
+    if (statusNow === "revealed") {
+      setError("Scores stay locked after BIG REVEAL.");
+      return;
+    }
+
+    setPendingAction({
+      title: "Unlock all scores?",
+      message:
+        "This clears CORE and FINAL locks for every saved score so tasters can finish or fix missed categories before BIG REVEAL.",
+      onConfirm: () => {
+        setPendingAction(null);
+        doUnlockAllScores();
+      },
+    });
   };
 
   if (loading) {
@@ -308,7 +332,7 @@ export default function HostPage() {
     );
   }
 
-  if (error) {
+  if (error && !session) {
     return (
       <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
         <div className="max-w-lg w-full bg-zinc-800 border border-zinc-700 rounded-2xl p-6">
@@ -334,8 +358,29 @@ export default function HostPage() {
 
   return (
     <main className="min-h-screen bg-zinc-900 text-white p-6">
+      <ConnectionBanner />
+      <ConfirmModal
+        open={!!pendingAction}
+        title={pendingAction?.title ?? ""}
+        message={pendingAction?.message ?? ""}
+        confirmLabel="Yes, proceed"
+        cancelLabel="Cancel"
+        onConfirm={pendingAction?.onConfirm ?? (() => setPendingAction(null))}
+        onCancel={() => setPendingAction(null)}
+      />
+      {copyHint ? (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-zinc-800 text-zinc-100 text-sm font-semibold px-4 py-2 rounded-full shadow-lg border border-zinc-700">
+          {copyHint}
+        </div>
+      ) : null}
       <div className="max-w-2xl mx-auto">
         <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-6 md:p-8 shadow-lg">
+          {error ? (
+            <div className="mb-4 rounded-2xl border border-red-800 bg-red-900/30 px-4 py-3 text-sm text-red-300 font-semibold flex items-center justify-between gap-3">
+              <span>{error}</span>
+              <button onClick={() => setError("")} className="text-red-400 hover:text-red-200 font-bold text-lg leading-none">×</button>
+            </div>
+          ) : null}
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl font-extrabold text-amber-400">{session.title}</h1>

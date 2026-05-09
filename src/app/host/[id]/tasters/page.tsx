@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { ConfirmModal } from "@/components/confirm-modal";
 
 type SessionRow = {
   id: string;
@@ -33,6 +34,7 @@ export default function HostTastersPage() {
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<ParticipantRow | null>(null);
 
   const [saveHint, setSaveHint] = useState("");
   const saveHintTimer = useRef<number | null>(null);
@@ -118,11 +120,13 @@ export default function HostTastersPage() {
 
   const removeTaster = async (participant: ParticipantRow) => {
     if (!sessionId) return;
+    setPendingRemove(participant);
+  };
 
-    const ok = window.confirm(
-      `Remove taster ${participant.display_name}?\n\nThis deletes their saved scores for this session too.`
-    );
-    if (!ok) return;
+  const confirmRemoveTaster = async () => {
+    const participant = pendingRemove;
+    setPendingRemove(null);
+    if (!participant || !sessionId) return;
 
     try {
       setBusyId(participant.id);
@@ -143,7 +147,11 @@ export default function HostTastersPage() {
       const { error: partErr } = await supabase.from("participants").delete().eq("id", participant.id);
 
       if (partErr) {
-        setError(partErr.message);
+        // Scores are gone but the participant row wasn't removed — reload so counts stay accurate.
+        await loadAll();
+        setError(
+          `Scores were removed but ${participant.display_name} could not be fully removed (${partErr.message}). Please try again.`
+        );
         setBusyId(null);
         return;
       }
@@ -188,6 +196,16 @@ export default function HostTastersPage() {
 
   return (
     <main className="min-h-screen bg-zinc-900 text-white p-6">
+      <ConfirmModal
+        open={!!pendingRemove}
+        title="Remove taster?"
+        message={`Remove ${pendingRemove?.display_name}?\n\nThis deletes their saved scores for this session too.`}
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        dangerous
+        onConfirm={confirmRemoveTaster}
+        onCancel={() => setPendingRemove(null)}
+      />
       <div className="max-w-2xl mx-auto">
         <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-6 md:p-8 shadow-lg">
           <div className="flex items-start justify-between gap-4">

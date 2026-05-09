@@ -188,8 +188,6 @@ export function RateNewForm({
     min: number,
     max: number
   ) => {
-    if (isScrollLocked) return;
-
     const safeValue = Number.isNaN(value) ? 0 : Math.max(min, Math.min(max, value));
 
     setScoresByItemId((prev) => ({
