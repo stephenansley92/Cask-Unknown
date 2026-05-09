@@ -694,13 +694,13 @@ export default function RevealPage() {
                 <div className="text-xs text-zinc-400">Category Shoutouts</div>
                 <div className="mt-4 space-y-2">
                   {categoryWinners.map((w) => (
-                    <div key={w.label} className="flex items-center justify-between gap-4">
-                      <div className="text-zinc-300 font-semibold">Best {w.label}:</div>
-                      <div className="text-zinc-100">
+                    <div key={w.label} className="grid grid-cols-[120px_1fr] gap-3 items-baseline">
+                      <div className="text-zinc-400 font-semibold text-sm shrink-0">Best {w.label}:</div>
+                      <div className="text-zinc-100 text-sm">
                         <span className="font-extrabold">
                           {w.pour ? displayPourName(w.pour) : "—"}
                         </span>{" "}
-                        <span className="text-zinc-500">({w.value.toFixed(1)}/{w.max})</span>
+                        <span className="text-zinc-500 text-xs">({w.value.toFixed(1)}/{w.max})</span>
                       </div>
                     </div>
                   ))}
