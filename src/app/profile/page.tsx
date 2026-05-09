@@ -1203,10 +1203,10 @@ export default function ProfilePage() {
           <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
             <div className="text-sm text-zinc-500">Public profile</div>
             <div className="mt-2 text-lg font-semibold text-zinc-900">
-              Leaderboard visibility
+              Community visibility
             </div>
             <div className="mt-2 text-sm text-zinc-500">
-              For beta, public profiles default to on. Your public profile only exposes your display name and aggregated leaderboard stats.
+              For beta, public profiles default to on. Your public profile only exposes your display name and aggregated community stats.
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
@@ -1232,7 +1232,7 @@ export default function ProfilePage() {
                   className="h-4 w-4 accent-zinc-900"
                 />
                 <span className="text-sm font-semibold text-zinc-800">
-                  Show on public leaderboard
+                  Show on Community
                 </span>
               </label>
             </div>
@@ -1264,7 +1264,7 @@ export default function ProfilePage() {
                 href="/leaderboard"
                 className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
               >
-                View Leaderboard
+                View Community
               </Link>
             </div>
           </div>
