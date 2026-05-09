@@ -248,6 +248,18 @@ export default function ScorePage() {
 
   const joinUrl = useMemo(() => (sessionId ? `/join/${sessionId}` : "/"), [sessionId]);
 
+  const hostDashboardUrl = useMemo(() => {
+    if (!sessionId || typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem("cask_unknown_host_sessions");
+      const saved: { id: string; key: string }[] = JSON.parse(raw || "[]");
+      const match = saved.find((s) => s.id === sessionId);
+      return match ? `/host/${sessionId}?key=${encodeURIComponent(match.key)}` : null;
+    } catch {
+      return null;
+    }
+  }, [sessionId]);
+
   const activePour = useMemo(
     () => pours.find((p) => p.id === activePourId) || null,
     [pours, activePourId]
@@ -854,6 +866,27 @@ export default function ScorePage() {
                 Progress: <span className="font-semibold text-zinc-800">{completedCount}</span> /{" "}
                 {pours.length}
               </div>
+              {/* Core category completion dots for active pour */}
+              {activePourId && (
+                <div className="mt-2 flex items-center gap-1.5">
+                  {CATEGORY_SPEC.filter((c) => c.group === "core").map((c) => {
+                    const val = (activeDraft as any)[c.key] as number;
+                    return (
+                      <div
+                        key={c.key}
+                        title={c.label}
+                        className={[
+                          "w-2 h-2 rounded-full transition-colors",
+                          val > 0 ? "bg-amber-400" : "bg-zinc-300",
+                        ].join(" ")}
+                      />
+                    );
+                  })}
+                  <span className="text-xs text-zinc-400 ml-1">
+                    {CATEGORY_SPEC.filter((c) => c.group === "core" && (activeDraft as any)[c.key] > 0).length}/8 scored
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col items-end gap-2">
@@ -868,6 +901,14 @@ export default function ScorePage() {
                 {total}
                 <span className="text-sm text-zinc-400 font-semibold">/100</span>
               </div>
+              {hostDashboardUrl && (
+                <button
+                  onClick={() => router.push(hostDashboardUrl)}
+                  className="rounded-2xl border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                >
+                  Host Dashboard
+                </button>
+              )}
               <button
                 onClick={() => router.push("/profile")}
                 className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"

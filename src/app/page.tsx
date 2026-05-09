@@ -41,6 +41,16 @@ export default function Home() {
   const [view, setView] = useState<HomeView>("loading");
   const [error, setError] = useState("");
   const [isOwner, setIsOwner] = useState(false);
+  const [showJoinInput, setShowJoinInput] = useState(false);
+  const [joinInput, setJoinInput] = useState("");
+
+  const handleJoin = () => {
+    const raw = joinInput.trim();
+    if (!raw) return;
+    const match = raw.match(/\/join\/([^/?#\s]+)/);
+    const id = match ? match[1] : raw;
+    router.push(`/join/${id}`);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +255,13 @@ export default function Home() {
           Community
         </button>
 
+        <button
+          onClick={() => router.push("/sessions")}
+          className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 font-semibold py-3 rounded-xl"
+        >
+          My Sessions
+        </button>
+
         {isOwner ? (
           <button
             onClick={() => router.push("/admin/testers")}
@@ -254,16 +271,39 @@ export default function Home() {
           </button>
         ) : null}
 
-        <button
-          onClick={() =>
-            alert(
-              "For now, guests join using the host's QR code / join link.\n\n(Join-by-code screen coming next.)"
-            )
-          }
-          className="bg-zinc-700 hover:bg-zinc-600 py-3 rounded-xl"
-        >
-          Join Session
-        </button>
+        {showJoinInput ? (
+          <div className="flex flex-col gap-2">
+            <input
+              autoFocus
+              value={joinInput}
+              onChange={(e) => setJoinInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleJoin()}
+              placeholder="Paste join link or session ID"
+              className="w-full bg-zinc-800 border border-zinc-600 rounded-xl px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleJoin}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-semibold py-3 rounded-xl"
+              >
+                Go
+              </button>
+              <button
+                onClick={() => { setShowJoinInput(false); setJoinInput(""); }}
+                className="bg-zinc-700 hover:bg-zinc-600 text-white font-semibold px-4 py-3 rounded-xl"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowJoinInput(true)}
+            className="bg-zinc-700 hover:bg-zinc-600 py-3 rounded-xl font-semibold"
+          >
+            Join Session
+          </button>
+        )}
       </div>
 
       <div className="mt-6 text-xs text-zinc-500 text-center max-w-sm">
