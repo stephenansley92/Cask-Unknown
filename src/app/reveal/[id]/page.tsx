@@ -670,8 +670,30 @@ export default function RevealPage() {
         <ConnectionBanner />
         <div className="max-w-6xl mx-auto">
           <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 shadow-xl">
-            <div className="text-sm text-zinc-400">FINAL RESULTS</div>
-            <div className="mt-2 text-4xl font-extrabold tracking-tight">{title}</div>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm text-zinc-400">FINAL RESULTS</div>
+                <div className="mt-2 text-4xl font-extrabold tracking-tight">{title}</div>
+              </div>
+              <button
+                onClick={() => {
+                  const lines = [
+                    `🥃 ${title} — Final Results`,
+                    "",
+                    "Overall Ranking:",
+                    ...pourStats.map((ps, i) => {
+                      const rank = pourRankMeta[ps.pour.id];
+                      const medal = rank?.rank === 1 ? "🥇" : rank?.rank === 2 ? "🥈" : rank?.rank === 3 ? "🥉" : `#${rank?.rank ?? i + 1}`;
+                      return `${medal} ${displayPourName(ps.pour)} — ${ps.avgTotal.toFixed(1)}/100`;
+                    }),
+                  ].join("\n");
+                  navigator.clipboard.writeText(lines).catch(() => {});
+                }}
+                className="shrink-0 rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
+              >
+                Copy Results
+              </button>
+            </div>
 
             <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Winner card */}

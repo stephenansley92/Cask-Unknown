@@ -3,12 +3,13 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Cask Unknown",
-    short_name: "Cask",
-    description: "Blind whiskey tasting app",
+    short_name: "Cask Unknown",
+    description: "Blind whiskey tasting. Score. Reveal. Crown a winner.",
     start_url: "/",
     display: "standalone",
+    orientation: "portrait",
     background_color: "#09090b",
-    theme_color: "#18181b",
+    theme_color: "#f59e0b",
     icons: [
       {
         src: "/icon-192.png",

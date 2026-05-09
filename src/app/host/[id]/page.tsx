@@ -169,6 +169,17 @@ export default function HostPage() {
         setSession(data as SessionRow);
         setLoading(false);
 
+        // Persist to localStorage so My Sessions page can list it
+        if (typeof window !== "undefined") {
+          const storageKey = "cask_unknown_host_sessions";
+          let saved: { id: string; key: string; title: string; createdAt: string }[] = [];
+          try { saved = JSON.parse(window.localStorage.getItem(storageKey) || "[]"); } catch {}
+          if (!saved.find((s) => s.id === sessionId)) {
+            saved.unshift({ id: sessionId, key: hostKey, title: (data as SessionRow).title, createdAt: (data as SessionRow).created_at || new Date().toISOString() });
+            window.localStorage.setItem(storageKey, JSON.stringify(saved.slice(0, 30)));
+          }
+        }
+
         // initial stats
         await refreshStats();
       } catch (e: any) {
