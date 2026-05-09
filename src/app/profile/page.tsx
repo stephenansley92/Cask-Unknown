@@ -882,6 +882,51 @@ export default function ProfilePage() {
     ? activeProfile
     : userDisplayName || activeProfile;
 
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+
+  // Group rate-mode entries by whiskey name; blind entries stay as individual items
+  const groupedHistory = useMemo(() => {
+    type Group = {
+      key: string;
+      label: string;
+      isRate: boolean;
+      rows: typeof sortedHistory;
+      avgTotal: number;
+      latestAt: string;
+    };
+    const rateGroups = new Map<string, typeof sortedHistory>();
+    const rateOrder: string[] = [];
+    const result: Group[] = [];
+
+    for (const row of sortedHistory) {
+      if (row.sessionId.startsWith("rate:")) {
+        const k = row.pourLabel;
+        if (!rateGroups.has(k)) {
+          rateGroups.set(k, []);
+          rateOrder.push(k);
+        }
+        rateGroups.get(k)!.push(row);
+      } else {
+        result.push({ key: row.id, label: row.pourLabel, isRate: false, rows: [row], avgTotal: row.total, latestAt: row.createdAt });
+      }
+    }
+
+    for (const k of rateOrder) {
+      const rows = rateGroups.get(k)!;
+      const avg = rows.reduce((s, r) => s + r.total, 0) / rows.length;
+      result.push({ key: `rate:${k}`, label: k, isRate: true, rows, avgTotal: avg, latestAt: rows[0].createdAt });
+    }
+
+    // Re-sort by the same sort key logic (newest first for default, else by score)
+    if (sortKey === "recent") {
+      result.sort((a, b) => (b.latestAt > a.latestAt ? 1 : -1));
+    } else if (sortKey === "total") {
+      result.sort((a, b) => b.avgTotal - a.avgTotal);
+    }
+
+    return result;
+  }, [sortedHistory, sortKey]);
+
   if (loading || (!profileResolved && !error)) {
     return (
       <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
@@ -1129,7 +1174,7 @@ export default function ProfilePage() {
               <div className="mt-4 text-sm text-zinc-500">Loading Rate Mode entries...</div>
             ) : null}
 
-            {sortedHistory.length === 0 && !rateLoading ? (
+            {groupedHistory.length === 0 && !rateLoading ? (
               <div className="mt-6 rounded-3xl border border-zinc-200 p-6 text-center">
                 <div className="text-lg font-semibold">No ratings yet</div>
                 <div className="mt-2 text-sm text-zinc-500">
@@ -1138,62 +1183,106 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="mt-6 space-y-3">
-                {sortedHistory.map((row) => {
-                  const isRateMode = row.sessionId.startsWith("rate:");
-                  const detailMode = isRateMode ? "rate" : "blind";
+                {groupedHistory.map((group) => {
                   const returnTo = encodeURIComponent("/profile");
-                  const ownerQuery = authUserId
-                    ? `&owner=${encodeURIComponent(authUserId)}`
-                    : "";
-                  const detailHref = `/history/${detailMode}/${row.id}?returnTo=${returnTo}${ownerQuery}`;
-                  const activeCategoryScore = activeSortCategory
-                    ? row.byCat[activeSortCategory.key]
-                    : null;
-                  const activeCategoryScoreText =
-                    typeof activeCategoryScore === "number"
-                      ? Number.isInteger(activeCategoryScore)
-                        ? activeCategoryScore.toFixed(0)
-                        : activeCategoryScore.toFixed(1)
-                      : "--";
-                  const cardScoreText = activeSortCategory
-                    ? `${activeCategoryScoreText}/${activeSortCategory.max}`
-                    : isRateMode
-                      ? row.total.toFixed(1)
-                      : row.total.toFixed(0);
-                  const cardScoreLabel = activeSortCategory
-                    ? activeSortCategory.label
-                    : "Overall / 100";
+                  const ownerQuery = authUserId ? `&owner=${encodeURIComponent(authUserId)}` : "";
+                  const isMulti = group.isRate && group.rows.length > 1;
+                  const isExpanded = expandedGroup === group.key;
 
-                  return (
-                    <Link
-                      key={row.id}
-                      href={detailHref}
-                      className="block rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                        <div>
-                          <div className="font-semibold">{row.pourLabel}</div>
-                          <div className="text-xs text-zinc-500 mt-1">
-                            {row.sessionTitle} - Rated{" "}
-                            {isRateMode
-                              ? formatDateTime(row.createdAt)
-                              : formatDate(row.createdAt)}
-                          </div>
-                          {row.notes ? (
-                            <div className="mt-2 text-sm text-zinc-600">
-                              <span className="font-semibold text-zinc-800">Notes:</span>{" "}
-                              {row.notes}
+                  const activeCategoryAvg = activeSortCategory
+                    ? group.rows.reduce((s, r) => s + (r.byCat[activeSortCategory.key] ?? 0), 0) / group.rows.length
+                    : null;
+                  const cardScoreText = activeSortCategory && activeCategoryAvg !== null
+                    ? `${activeCategoryAvg % 1 === 0 ? activeCategoryAvg.toFixed(0) : activeCategoryAvg.toFixed(1)}/${activeSortCategory.max}`
+                    : group.isRate
+                      ? group.avgTotal.toFixed(1)
+                      : group.rows[0].total.toFixed(0);
+                  const cardScoreLabel = activeSortCategory ? activeSortCategory.label : "Overall / 100";
+
+                  // Single entry — link directly to detail page
+                  if (!isMulti) {
+                    const row = group.rows[0];
+                    const detailHref = `/history/${group.isRate ? "rate" : "blind"}/${row.id}?returnTo=${returnTo}${ownerQuery}`;
+                    return (
+                      <Link
+                        key={group.key}
+                        href={detailHref}
+                        className="block rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                      >
+                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                          <div>
+                            <div className="font-semibold">{group.label}</div>
+                            <div className="text-xs text-zinc-500 mt-1">
+                              {row.sessionTitle} — Rated {group.isRate ? formatDateTime(row.createdAt) : formatDate(row.createdAt)}
                             </div>
-                          ) : null}
-                        </div>
-                        <div className="text-right">
-                          <div className="text-2xl font-extrabold tabular-nums">
-                            {cardScoreText}
+                            {row.notes ? (
+                              <div className="mt-2 text-sm text-zinc-600">
+                                <span className="font-semibold text-zinc-800">Notes:</span> {row.notes}
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="text-xs text-zinc-500">{cardScoreLabel}</div>
+                          <div className="text-right shrink-0">
+                            <div className="text-2xl font-extrabold tabular-nums">{cardScoreText}</div>
+                            <div className="text-xs text-zinc-500">{cardScoreLabel}</div>
+                          </div>
                         </div>
-                      </div>
-                    </Link>
+                      </Link>
+                    );
+                  }
+
+                  // Multiple rate-mode entries — grouped card with expand/collapse
+                  return (
+                    <div key={group.key} className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] overflow-hidden">
+                      <button
+                        onClick={() => setExpandedGroup(isExpanded ? null : group.key)}
+                        className="w-full text-left px-4 py-4 hover:bg-zinc-100 focus:outline-none"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-semibold">{group.label}</div>
+                            <div className="text-xs text-zinc-500 mt-1">
+                              {group.rows.length} ratings — avg score
+                              <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                                {group.rows.length}×
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-2xl font-extrabold tabular-nums">{cardScoreText}</div>
+                            <div className="text-xs text-zinc-500">{cardScoreLabel}</div>
+                            <div className="text-xs text-zinc-400 mt-1">{isExpanded ? "▲ Hide" : "▼ Show all"}</div>
+                          </div>
+                        </div>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t border-zinc-200 divide-y divide-zinc-200">
+                          {group.rows.map((row, i) => {
+                            const detailHref = `/history/rate/${row.id}?returnTo=${returnTo}${ownerQuery}`;
+                            return (
+                              <Link
+                                key={row.id}
+                                href={detailHref}
+                                className="flex items-start justify-between gap-3 px-4 py-3 bg-white hover:bg-zinc-50"
+                              >
+                                <div className="min-w-0">
+                                  <div className="text-xs text-zinc-500">Rating {i + 1} — {formatDateTime(row.createdAt)}</div>
+                                  {row.notes ? (
+                                    <div className="mt-1 text-sm text-zinc-700">{row.notes}</div>
+                                  ) : (
+                                    <div className="mt-1 text-sm text-zinc-400 italic">No notes</div>
+                                  )}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-xl font-extrabold tabular-nums">{row.total.toFixed(1)}</div>
+                                  <div className="text-xs text-zinc-500">/ 100</div>
+                                </div>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
