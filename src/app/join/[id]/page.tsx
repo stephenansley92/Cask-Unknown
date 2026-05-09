@@ -236,11 +236,14 @@ export default function JoinPage() {
       setSubmitting(true);
       setError("");
 
+      // Use an authenticated client so RLS policies can verify auth.uid() = user_id
+      const dbClient = authUserId ? createSupabaseBrowserClient() : supabase;
+
       let row: ParticipantRow | null = null;
 
       if (authUserId && !isOwner) {
         const { data: ownedParticipant, error: ownedParticipantError } =
-          await supabase
+          await dbClient
             .from("participants")
             .select("id,session_id,display_name,user_id,created_at")
             .eq("session_id", sessionId)
@@ -257,7 +260,7 @@ export default function JoinPage() {
 
         if (!row) {
           const { data: legacyParticipant, error: legacyParticipantError } =
-            await supabase
+            await dbClient
               .from("participants")
               .select("id,session_id,display_name,user_id,created_at")
               .eq("session_id", sessionId)
@@ -272,7 +275,7 @@ export default function JoinPage() {
           }
 
           if (legacyParticipant) {
-            const { data: claimedParticipant, error: claimError } = await supabase
+            const { data: claimedParticipant, error: claimError } = await dbClient
               .from("participants")
               .update({ user_id: authUserId })
               .eq("id", legacyParticipant.id as string)
@@ -289,7 +292,7 @@ export default function JoinPage() {
           }
         }
       } else {
-        const { data: existing, error: existingErr } = await supabase
+        const { data: existing, error: existingErr } = await dbClient
           .from("participants")
           .select("id,session_id,display_name,user_id,created_at")
           .eq("session_id", sessionId)
@@ -319,7 +322,7 @@ export default function JoinPage() {
           insertPayload.user_id = authUserId;
         }
 
-        const { data: inserted, error: insErr } = await supabase
+        const { data: inserted, error: insErr } = await dbClient
           .from("participants")
           .insert(insertPayload)
           .select("id,session_id,display_name,user_id,created_at")
