@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { QRCodeCanvas } from "qrcode.react";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
-import { Lock, Users, Scan, Copy, Wine, Unlock, Trophy } from "lucide-react";
+import { Lock, Users, Scan, Copy, Wine, Unlock, Trophy, Star } from "lucide-react";
 
 type SessionRow = {
   id: string;
@@ -452,6 +452,12 @@ export default function HostPage() {
               </button>
             </div>
             <div className="text-xs text-zinc-500 mt-2">Have them scan the QR code or open the link.</div>
+            <button
+              onClick={() => router.push(`/join/${sessionId}`)}
+              className="mt-3 w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-amber-600 text-amber-400 font-semibold px-4 py-3 rounded-xl"
+            >
+              <Star className="w-4 h-4" /> Score as Taster (join this session yourself)
+            </button>
           </div>
 
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
