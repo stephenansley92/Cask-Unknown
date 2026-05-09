@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { ConnectionBanner } from "@/components/connection-banner";
+import { ConfirmModal } from "@/components/confirm-modal";
 
 type SessionRow = {
   id: string;
@@ -232,7 +234,10 @@ export default function ScorePage() {
   const [finalLockedByPour, setFinalLockedByPour] = useState<Record<string, boolean>>({});
 
   const [saveHint, setSaveHint] = useState<string>("");
+  const [saveError, setSaveError] = useState<string>("");
   const [isScrollLocked, setIsScrollLocked] = useState(false);
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [confirmLock, setConfirmLock] = useState<{ kind: "core" | "final"; message: string } | null>(null);
   const saveHintTimer = useRef<number | null>(null);
   const saveDebounceTimer = useRef<number | null>(null);
   const scrollLockTimer = useRef<number | null>(null);
@@ -390,6 +395,7 @@ export default function ScorePage() {
     };
 
     showHint(extra?.lockFinal ? "Locking final…" : extra?.lockCore ? "Locking…" : "Saving…");
+    setSaveError("");
 
     const { data, error: uErr } = await supabase
       .from("scores")
@@ -398,8 +404,11 @@ export default function ScorePage() {
       .single();
 
     if (uErr) {
-      setError(uErr.message);
-      showHint("");
+      setSaveError(uErr.message);
+      showHint("Failed ✗");
+      // Revert optimistic lock state if a lock op failed
+      if (extra?.lockCore) setCoreLockedByPour((prev) => ({ ...prev, [pourId]: false }));
+      if (extra?.lockFinal) setFinalLockedByPour((prev) => ({ ...prev, [pourId]: false }));
       return;
     }
 
@@ -610,7 +619,6 @@ export default function ScorePage() {
 
   const setSliderValue = (key: keyof ScoreDraft, value: number) => {
     if (!activePourId) return;
-    if (isScrollLocked) return;
 
     const spec = CATEGORY_SPEC.find((c) => c.key === key);
     const v = spec ? clamp(value, spec.min, spec.max) : value;
@@ -655,6 +663,7 @@ export default function ScorePage() {
       engaged: false,
       canceled: false,
     };
+    setDraggingKey(key as string);
   };
 
   const handleSliderTouchMove = (e: TouchEvent<HTMLInputElement>) => {
@@ -703,6 +712,7 @@ export default function ScorePage() {
     }
 
     activeSliderTouch.current = null;
+    setDraggingKey(null);
   };
 
   const setNotes = (text: string) => {
@@ -725,7 +735,7 @@ export default function ScorePage() {
     if (prev) await switchPour(prev.id);
   };
 
-  const lockCoreNow = async () => {
+  const lockCoreNow = () => {
     if (!activePourId) return;
     if (activeCoreLocked || activeFinalLocked) return;
 
@@ -733,19 +743,16 @@ export default function ScorePage() {
       (c) => c.group === "core" && (activeDraft as any)[c.key] === 0
     ).map((c) => c.label);
 
-    const ok = window.confirm(
-      missingCore.length > 0
-        ? `These core categories are still 0 for Pour ${activePour?.code ?? ""}: ${missingCore.join(
-            ", "
-          )}.\n\nAre you sure you want to lock CORE scores anyway?`
-        : `Lock CORE scores for Pour ${activePour?.code ?? ""}?\n\nThis locks the main tasting categories for this pour. Packaging and Value can still be scored later after the host unlocks that stage.`
-    );
-    if (!ok) return;
-
-    await upsertPour(activePourId, { lockCore: true });
+    setConfirmLock({
+      kind: "core",
+      message:
+        missingCore.length > 0
+          ? `These core categories are still 0 for Pour ${activePour?.code ?? ""}: ${missingCore.join(", ")}.\n\nLock CORE scores anyway?`
+          : `Lock CORE scores for Pour ${activePour?.code ?? ""}?\n\nPackaging and Value can still be scored later after the host unlocks that stage.`,
+    });
   };
 
-  const lockFinalNow = async () => {
+  const lockFinalNow = () => {
     if (!activePourId) return;
     if (!revealScoringEnabled) {
       showHint("Wait for host unlock");
@@ -757,16 +764,20 @@ export default function ScorePage() {
       (c) => c.label
     );
 
-    const ok = window.confirm(
-      missingFinal.length > 0
-        ? `These categories are still 0 for Pour ${activePour?.code ?? ""}: ${missingFinal.join(
-            ", "
-          )}.\n\nAre you sure you want to lock FINAL scores anyway?`
-        : `Lock FINAL scores for Pour ${activePour?.code ?? ""}?\n\nThis locks Packaging/Value for this pour before BIG REVEAL.`
-    );
-    if (!ok) return;
+    setConfirmLock({
+      kind: "final",
+      message:
+        missingFinal.length > 0
+          ? `These categories are still 0 for Pour ${activePour?.code ?? ""}: ${missingFinal.join(", ")}.\n\nLock FINAL scores anyway?`
+          : `Lock FINAL scores for Pour ${activePour?.code ?? ""}?\n\nThis locks Packaging/Value for this pour before BIG REVEAL.`,
+    });
+  };
 
-    await upsertPour(activePourId, { lockFinal: true });
+  const handleLockConfirm = async () => {
+    if (!confirmLock || !activePourId) return;
+    const kind = confirmLock.kind;
+    setConfirmLock(null);
+    await upsertPour(activePourId, kind === "core" ? { lockCore: true } : { lockFinal: true });
   };
 
   if (loading) {
@@ -790,9 +801,38 @@ export default function ScorePage() {
 
   if (!session || !participant) return null;
 
+  if (pours.length === 0) {
+    return (
+      <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm text-center">
+          <div className="text-2xl font-extrabold tracking-tight">No pours yet</div>
+          <p className="text-zinc-500 mt-2 text-sm">
+            The host hasn&apos;t added any pours to this session. Check back once they set everything up.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
+      <ConnectionBanner />
+      <ConfirmModal
+        open={!!confirmLock}
+        title={confirmLock?.kind === "core" ? "Lock Core Scores?" : "Lock Final Scores?"}
+        message={confirmLock?.message ?? ""}
+        confirmLabel="Lock"
+        cancelLabel="Cancel"
+        onConfirm={handleLockConfirm}
+        onCancel={() => setConfirmLock(null)}
+      />
       <div className="max-w-md mx-auto">
+        {saveError ? (
+          <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-semibold flex items-center justify-between gap-3">
+            <span>Save failed: {saveError}</span>
+            <button onClick={() => setSaveError("")} className="text-red-400 hover:text-red-600 font-bold text-lg leading-none">×</button>
+          </div>
+        ) : null}
         {/* Header */}
         <div className="bg-white border border-zinc-200 rounded-3xl p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
@@ -834,6 +874,7 @@ export default function ScorePage() {
           {/* Pour selector */}
           <div className="mt-4">
             <div className="text-xs text-zinc-500 mb-2">Select pour</div>
+            <div className="relative">
             <div className="flex gap-2 overflow-x-auto pb-1">
               {pours.map((p) => {
                 const isActive = p.id === activePourId;
@@ -879,6 +920,10 @@ export default function ScorePage() {
                 );
               })}
             </div>
+            {pours.length > 3 && (
+              <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-10 bg-gradient-to-l from-white" />
+            )}
+            </div>
           </div>
         </div>
 
@@ -898,13 +943,13 @@ export default function ScorePage() {
             <div className="flex gap-2">
               <button
                 onClick={goPrevPour}
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold hover:bg-zinc-50 min-w-[64px]"
               >
                 Prev
               </button>
               <button
                 onClick={goNextPour}
-                className="rounded-2xl border border-zinc-900 bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                className="rounded-2xl border border-zinc-900 bg-zinc-900 px-4 py-3 text-sm font-semibold text-white hover:bg-zinc-800 min-w-[64px]"
               >
                 Next
               </button>
@@ -989,27 +1034,35 @@ export default function ScorePage() {
                   </div>
 
                   <div className="mt-2">
-                    <input
-                      type="range"
-                      min={c.min}
-                      max={c.max}
-                      step={1}
-                      value={val}
-                      onChange={(e) => {
-                        if (activeSliderTouch.current) return;
-                        setSliderValue(c.key as any, Number(e.target.value));
-                      }}
-                      onTouchStart={(e) => handleSliderTouchStart(c.key as any, c.min, c.max, e)}
-                      onTouchMove={handleSliderTouchMove}
-                      onTouchEnd={handleSliderTouchEnd}
-                      onTouchCancel={() => {
-                        activeSliderTouch.current = null;
-                      }}
-                      disabled={disabled}
-                      className={["w-full accent-zinc-900", disabled ? "opacity-40" : "opacity-100"].join(" ")}
-                      style={{ touchAction: "pan-y" }}
-                    />
-                    <div className="mt-1 flex justify-between text-[11px] text-zinc-400 tabular-nums">
+                    <div className="relative">
+                      <input
+                        type="range"
+                        min={c.min}
+                        max={c.max}
+                        step={1}
+                        value={val}
+                        onChange={(e) => {
+                          if (activeSliderTouch.current) return;
+                          setSliderValue(c.key as any, Number(e.target.value));
+                        }}
+                        onTouchStart={(e) => handleSliderTouchStart(c.key as any, c.min, c.max, e)}
+                        onTouchMove={handleSliderTouchMove}
+                        onTouchEnd={handleSliderTouchEnd}
+                        onTouchCancel={() => {
+                          activeSliderTouch.current = null;
+                          setDraggingKey(null);
+                        }}
+                        disabled={disabled}
+                        className={["w-full accent-zinc-900", disabled ? "opacity-40" : "opacity-100"].join(" ")}
+                        style={{ touchAction: "pan-y" }}
+                      />
+                      {draggingKey === c.key && (
+                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white text-sm font-extrabold px-3 py-1 rounded-xl pointer-events-none tabular-nums">
+                          {val}
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-1 flex justify-between text-xs text-zinc-400 tabular-nums">
                       <span>{c.min}</span>
                       <span>{c.max}</span>
                     </div>

@@ -133,6 +133,16 @@ export default function JoinPage() {
 
         setSession(sess as SessionRow);
 
+        // Block joining sessions that are already past the scoring phase
+        const sStatus = ((sess as SessionRow).status || "").toLowerCase();
+        if (sStatus === "revealed" || sStatus === "closed") {
+          setError(
+            `This session has already ended (status: ${(sess as SessionRow).status}). Ask the host to share the reveal link instead.`
+          );
+          setLoading(false);
+          return;
+        }
+
         const raw =
           typeof window !== "undefined"
             ? window.localStorage.getItem(storageKey(sessionId))
@@ -451,12 +461,14 @@ export default function JoinPage() {
                     ))}
                   </select>
 
-                  <div className="mt-3 text-center text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                    Or
+                  <div className="mt-4 flex items-center gap-3">
+                    <div className="flex-1 h-px bg-zinc-200" />
+                    <span className="text-xs font-semibold text-zinc-400">or enter a new name</span>
+                    <div className="flex-1 h-px bg-zinc-200" />
                   </div>
 
                   <label className="mt-3 block text-sm font-semibold text-zinc-800">
-                    Type a new profile name
+                    New profile name
                   </label>
 
                   <input

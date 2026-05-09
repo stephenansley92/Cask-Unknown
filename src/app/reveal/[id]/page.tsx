@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { ConnectionBanner } from "@/components/connection-banner";
 
 type SessionRow = {
   id: string;
@@ -229,6 +230,7 @@ export default function RevealPage() {
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [scores, setScores] = useState<ScoreRow[]>([]);
   const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
   // Cinematic mode: step through from LAST → FIRST, then final screen
   const [cinematicStep, setCinematicStep] = useState(0);
@@ -310,17 +312,17 @@ export default function RevealPage() {
         "postgres_changes",
         { event: "*", schema: "public", table: "scores", filter: `session_id=eq.${sessionId}` },
         async () => {
-          try {
-            const { data, error: scoreErr } = await supabase
-              .from("scores")
-               .select(
-                  "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes"
-                )
-              .eq("session_id", sessionId);
+          const { data, error: scoreErr } = await supabase
+            .from("scores")
+            .select(
+              "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes"
+            )
+            .eq("session_id", sessionId);
 
-            if (!scoreErr) setScores((data || []) as ScoreRow[]);
-          } catch {
-            // ignore
+          if (scoreErr) {
+            console.warn("Reveal scores sync failed:", scoreErr.message);
+          } else {
+            setScores((data || []) as ScoreRow[]);
           }
         }
       )
@@ -328,16 +330,16 @@ export default function RevealPage() {
         "postgres_changes",
         { event: "*", schema: "public", table: "pours", filter: `session_id=eq.${sessionId}` },
         async () => {
-          try {
-            const { data, error: poursErr } = await supabase
-              .from("pours")
-              .select("id,session_id,code,bottle_name,sort_order")
-              .eq("session_id", sessionId)
-              .order("sort_order", { ascending: true });
+          const { data, error: poursErr } = await supabase
+            .from("pours")
+            .select("id,session_id,code,bottle_name,sort_order")
+            .eq("session_id", sessionId)
+            .order("sort_order", { ascending: true });
 
-            if (!poursErr) setPours((data || []) as PourRow[]);
-          } catch {
-            // ignore
+          if (poursErr) {
+            console.warn("Reveal pours sync failed:", poursErr.message);
+          } else {
+            setPours((data || []) as PourRow[]);
           }
         }
       )
@@ -581,11 +583,14 @@ export default function RevealPage() {
   }, [activeCinematic, participants, scores]);
 
   const refresh = async () => {
-    if (!sessionId) return;
+    if (!sessionId || refreshing) return;
     try {
+      setRefreshing(true);
       await loadAll(sessionId);
-    } catch {
-      // ignore
+    } catch (e: any) {
+      console.warn("Manual refresh failed:", e?.message);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -615,6 +620,7 @@ export default function RevealPage() {
   if (!isRevealed && session.is_blind) {
     return (
       <main className="min-h-screen bg-black text-white p-6 flex items-center justify-center">
+        <ConnectionBanner />
         <div className="max-w-xl w-full bg-zinc-950 border border-zinc-800 rounded-3xl p-8 text-center">
           <div className="text-sm text-zinc-400">Cask Unknown</div>
           <div className="text-3xl font-extrabold mt-2">{session.title}</div>
@@ -637,6 +643,7 @@ export default function RevealPage() {
   if (isFinalStep) {
     return (
       <main className="min-h-screen bg-black text-white p-6">
+        <ConnectionBanner />
         <div className="max-w-6xl mx-auto">
           <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 shadow-xl">
             <div className="text-sm text-zinc-400">FINAL RESULTS</div>
@@ -782,9 +789,10 @@ export default function RevealPage() {
 
               <button
                 onClick={refresh}
-                className="w-full md:w-auto px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-black font-extrabold"
+                disabled={refreshing}
+                className="w-full md:w-auto px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-black font-extrabold disabled:opacity-60"
               >
-                Refresh Data
+                {refreshing ? "Refreshing…" : "Refresh Data"}
               </button>
             </div>
 
@@ -805,6 +813,7 @@ export default function RevealPage() {
 
   return (
     <main className="min-h-screen bg-black text-white p-6">
+      <ConnectionBanner />
       <div className="max-w-6xl mx-auto">
         <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 shadow-xl">
           <div className="flex items-start justify-between gap-6">

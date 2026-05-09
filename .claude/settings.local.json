@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\mrnoo\\\\cask-unknown\\\\.claude\\\\worktrees\\\\naughty-pare-5c8e05\" -Force)",
+      "Bash(Select-Object -Property Name, Mode)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\mrnoo\\\\cask-unknown\\\\.claude\\\\worktrees\\\\naughty-pare-5c8e05\\\\src\\\\app\\\\rate\" -Recurse -File)",
+      "Bash(grep -E \"\\\\.\\(sql|ts\\)$\")",
+      "Bash(xargs cat)",
+      "Bash(xargs grep -l \"number\\\\|input\")",
+      "Bash(npx tsc *)",
+      "Bash(npx next *)",
+      "Bash(git stash *)"
+    ]
+  }
+}
