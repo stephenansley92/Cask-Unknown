@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { Lock, LockOpen, CheckCircle2 } from "lucide-react";
 
 type SessionRow = {
   id: string;
@@ -238,6 +239,7 @@ export default function ScorePage() {
   const [isScrollLocked, setIsScrollLocked] = useState(false);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [confirmLock, setConfirmLock] = useState<{ kind: "core" | "final"; message: string } | null>(null);
+  const [flashedPour, setFlashedPour] = useState<string | null>(null);
   const saveHintTimer = useRef<number | null>(null);
   const saveDebounceTimer = useRef<number | null>(null);
   const scrollLockTimer = useRef<number | null>(null);
@@ -416,9 +418,13 @@ export default function ScorePage() {
 
     if (extra?.lockCore) {
       setCoreLockedByPour((prev) => ({ ...prev, [pourId]: true }));
+      setFlashedPour(pourId);
+      setTimeout(() => setFlashedPour(null), 700);
       showHint("Locked ✓");
     } else if (extra?.lockFinal) {
       setFinalLockedByPour((prev) => ({ ...prev, [pourId]: true }));
+      setFlashedPour(pourId);
+      setTimeout(() => setFlashedPour(null), 700);
       showHint("Final locked ✓");
     } else {
       showHint("Saved ✓");
@@ -886,10 +892,11 @@ export default function ScorePage() {
                     key={p.id}
                     onClick={() => switchPour(p.id)}
                     className={[
-                      "shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2",
+                      "shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 transition-colors",
                       isActive
                         ? "border-zinc-900 bg-zinc-900 text-white"
                         : "border-zinc-200 bg-white text-zinc-900",
+                      flashedPour === p.id ? "animate-lock-flash" : "",
                     ].join(" ")}
                   >
                     <div
@@ -962,12 +969,13 @@ export default function ScorePage() {
               onClick={lockCoreNow}
               disabled={activeCoreLocked || activeFinalLocked}
               className={[
-                "w-full rounded-2xl px-4 py-3 text-sm font-semibold border",
+                "w-full rounded-2xl px-4 py-3 text-sm font-semibold border flex items-center justify-center gap-2",
                 activeCoreLocked || activeFinalLocked
                   ? "border-zinc-200 bg-zinc-100 text-zinc-500 cursor-not-allowed"
                   : "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800",
               ].join(" ")}
             >
+              {activeCoreLocked ? <Lock size={15} /> : <LockOpen size={15} />}
               {activeCoreLocked ? "Core Scores Locked" : "Lock Core Scores"}
             </button>
             <div className="mt-2 text-xs text-zinc-500">
@@ -981,12 +989,13 @@ export default function ScorePage() {
               onClick={lockFinalNow}
               disabled={!revealScoringEnabled || activeFinalLocked}
               className={[
-                "w-full rounded-2xl px-4 py-3 text-sm font-extrabold border",
+                "w-full rounded-2xl px-4 py-3 text-sm font-extrabold border flex items-center justify-center gap-2",
                 !revealScoringEnabled || activeFinalLocked
                   ? "border-zinc-200 bg-zinc-100 text-zinc-500 cursor-not-allowed"
                   : "border-amber-600 bg-amber-500 text-black hover:bg-amber-600",
               ].join(" ")}
             >
+              {activeFinalLocked ? <Lock size={15} /> : <CheckCircle2 size={15} />}
               {activeFinalLocked ? "Final Scores Locked" : "Lock Final Scores"}
             </button>
             <div className="mt-2 text-xs text-zinc-500">
@@ -1053,8 +1062,11 @@ export default function ScorePage() {
                           setDraggingKey(null);
                         }}
                         disabled={disabled}
-                        className={["w-full accent-zinc-900", disabled ? "opacity-40" : "opacity-100"].join(" ")}
-                        style={{ touchAction: "pan-y" }}
+                        className={["w-full cask-slider", disabled ? "opacity-40" : "opacity-100"].join(" ")}
+                        style={{
+                          touchAction: "pan-y",
+                          background: `linear-gradient(to right, #f59e0b 0%, #f59e0b ${((val - c.min) / (c.max - c.min)) * 100}%, #e4e4e7 ${((val - c.min) / (c.max - c.min)) * 100}%, #e4e4e7 100%)`,
+                        }}
                       />
                       {draggingKey === c.key && (
                         <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white text-sm font-extrabold px-3 py-1 rounded-xl pointer-events-none tabular-nums">

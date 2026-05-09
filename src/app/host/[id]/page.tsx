@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { QRCodeCanvas } from "qrcode.react";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { Lock, Users, Scan, Copy, Wine, Unlock, Trophy } from "lucide-react";
 
 type SessionRow = {
   id: string;
@@ -389,23 +390,40 @@ export default function HostPage() {
               </p>
               <p className="text-zinc-500 text-sm mt-1">Blind mode: {session.is_blind ? "ON" : "OFF"}</p>
 
-              <div className="mt-3 text-xs text-zinc-400">
+              <div className="mt-3 space-y-2">
                 {statsLoading ? (
-                  <span>Checking locks…</span>
+                  <div className="text-xs text-zinc-500 animate-pulse">Checking locks…</div>
                 ) : (
-                  <span>
-                    Core Locked:{" "}
-                    <span className="text-zinc-100 font-semibold tabular-nums">
-                      {coreLockedCount}/{expectedCount || 0}
-                    </span>
-                    {" • "}
-                    Final Locked:{" "}
-                    <span className="text-zinc-100 font-semibold tabular-nums">
-                      {finalLockedCount}/{expectedCount || 0}
-                    </span>
-                    {" • "}
-                    {participantsCount} tasters • {poursCount} pours
-                  </span>
+                  <>
+                    <div>
+                      <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
+                        <span className="flex items-center gap-1"><Lock className="w-3 h-3" /> Core locked</span>
+                        <span className="font-semibold text-zinc-200 tabular-nums">{coreLockedCount}/{expectedCount || 0}</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-zinc-700">
+                        <div
+                          className="h-1.5 rounded-full bg-emerald-500 transition-all duration-500"
+                          style={{ width: expectedCount > 0 ? `${(coreLockedCount / expectedCount) * 100}%` : "0%" }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
+                        <span className="flex items-center gap-1"><Trophy className="w-3 h-3" /> Final locked</span>
+                        <span className="font-semibold text-zinc-200 tabular-nums">{finalLockedCount}/{expectedCount || 0}</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-zinc-700">
+                        <div
+                          className="h-1.5 rounded-full bg-amber-500 transition-all duration-500"
+                          style={{ width: expectedCount > 0 ? `${(finalLockedCount / expectedCount) * 100}%` : "0%" }}
+                        />
+                      </div>
+                    </div>
+                    <div className="text-xs text-zinc-500 flex items-center gap-3 pt-0.5">
+                      <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {participantsCount} tasters</span>
+                      <span className="flex items-center gap-1"><Wine className="w-3 h-3" /> {poursCount} pours</span>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -417,7 +435,9 @@ export default function HostPage() {
 
           {/* Join link */}
           <div className="mt-6 bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
-            <div className="text-sm text-zinc-400 mb-2">Join link for friends</div>
+            <div className="flex items-center gap-1.5 text-sm text-zinc-400 mb-2">
+              <Scan className="w-4 h-4" /> Join link for friends
+            </div>
             <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
               <input
                 readOnly
@@ -426,9 +446,9 @@ export default function HostPage() {
               />
               <button
                 onClick={() => copy(joinUrl, "Join link")}
-                className="bg-amber-500 hover:bg-amber-600 text-black font-semibold px-5 py-3 rounded-xl"
+                className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-black font-semibold px-5 py-3 rounded-xl"
               >
-                Copy
+                <Copy className="w-4 h-4" /> Copy
               </button>
             </div>
             <div className="text-xs text-zinc-500 mt-2">Have them scan the QR code or open the link.</div>
@@ -443,15 +463,15 @@ export default function HostPage() {
               </div>
               <button
                 onClick={goPoursSetup}
-                className="mt-4 w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold px-4 py-3 rounded-xl"
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold px-4 py-3 rounded-xl"
               >
-                Manage Pours (Bottle Info)
+                <Wine className="w-4 h-4" /> Manage Pours (Bottle Info)
               </button>
               <button
                 onClick={goTastersSetup}
-                className="mt-3 w-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold px-4 py-3 rounded-xl"
+                className="mt-3 w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold px-4 py-3 rounded-xl"
               >
-                Manage Tasters
+                <Users className="w-4 h-4" /> Manage Tasters
               </button>
               <div className="text-xs text-zinc-500 mt-2">
                 You can edit bottle info during Soft Reveal too — it stays hidden until BIG REVEAL.
@@ -513,14 +533,15 @@ export default function HostPage() {
                     );
                   }}
                   className={[
-                    "w-full font-extrabold px-4 py-3 rounded-xl",
+                    "w-full font-extrabold px-4 py-4 rounded-xl flex items-center justify-center gap-2 text-base",
                     isRevealed
                       ? "bg-amber-500 hover:bg-amber-600 text-black"
                       : canBigReveal
-                      ? "bg-amber-500 hover:bg-amber-600 text-black"
+                      ? "bg-amber-500 hover:bg-amber-600 text-black animate-reveal-pulse"
                       : "bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed",
                   ].join(" ")}
                 >
+                  <Trophy className="w-5 h-5" />
                   {isRevealed ? "BIG REVEAL COMPLETE" : busy ? "Revealing…" : "BIG REVEAL"}
                 </button>
 
@@ -536,13 +557,13 @@ export default function HostPage() {
                   onClick={unlockAllScores}
                   disabled={busy || isRevealed}
                   className={[
-                    "w-full px-4 py-3 rounded-xl border font-semibold",
+                    "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border font-semibold",
                     busy || isRevealed
                       ? "bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed"
                       : "bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-white",
                   ].join(" ")}
                 >
-                  {busy ? "Working..." : "Unlock All Scores"}
+                  <Unlock className="w-4 h-4" /> {busy ? "Working..." : "Unlock All Scores"}
                 </button>
 
                 <div className="text-xs text-zinc-500">
@@ -552,9 +573,9 @@ export default function HostPage() {
 
                 <button
                   onClick={() => copy(revealUrl, "Reveal link")}
-                  className="w-full px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold"
                 >
-                  Copy Reveal Link
+                  <Copy className="w-4 h-4" /> Copy Reveal Link
                 </button>
               </div>
 

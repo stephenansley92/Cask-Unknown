@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -414,9 +415,9 @@ export default function JoinPage() {
 
               <button
                 onClick={continueAsExisting}
-                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800"
+                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 flex items-center justify-center gap-2"
               >
-                Continue to Scoring
+                Continue to Scoring <ChevronRight size={16} />
               </button>
 
               <div className="mt-4 text-xs text-zinc-500">
@@ -488,9 +489,10 @@ export default function JoinPage() {
               <button
                 onClick={submit}
                 disabled={submitting}
-                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
+                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {submitting ? "Joining..." : "Join Session"}
+                {!submitting && <ChevronRight size={16} />}
               </button>
 
               <div className="mt-4 text-xs text-zinc-500">
