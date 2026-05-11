@@ -1,10 +1,17 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "Cask Unknown",
-  description: "Blind whiskey tasting app",
+  description: "Blind whiskey tasting. Score. Reveal. Crown a winner.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
@@ -17,7 +24,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#18181b",
+  themeColor: "#f59e0b",
 };
 
 export default function RootLayout({
@@ -26,8 +33,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" className={inter.variable}>
+      <body className={inter.className}>
         <ServiceWorkerRegister />
         {children}
       </body>

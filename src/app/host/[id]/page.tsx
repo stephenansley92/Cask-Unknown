@@ -457,7 +457,7 @@ export default function HostPage() {
               />
               <button
                 onClick={() => copy(joinUrl, "Join link")}
-                className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-black font-semibold px-5 py-3 rounded-xl"
+                className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-black font-semibold px-5 py-3 rounded-xl"
               >
                 <Copy className="w-4 h-4" /> Copy
               </button>
@@ -496,7 +496,7 @@ export default function HostPage() {
             </div>
 
             {/* Reveal controls */}
-            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-5">
+            <div className="bg-zinc-900 border border-amber-500/30 rounded-2xl p-5">
               <div className="text-zinc-300 font-semibold">Step 2 — Reveal Controls</div>
               <div className="text-zinc-500 text-sm mt-1">
                 Soft Reveal opens Packaging/Value scoring. BIG REVEAL shows names + winners.
@@ -516,7 +516,7 @@ export default function HostPage() {
                     isRevealReady || isRevealed
                       ? "bg-emerald-600/20 border-emerald-700 text-emerald-200 cursor-not-allowed"
                       : canSoftReveal
-                      ? "bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-white"
+                      ? "bg-zinc-800 hover:bg-zinc-700 active:scale-95 border-zinc-700 text-white"
                       : "bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed",
                   ].join(" ")}
                 >
@@ -552,9 +552,9 @@ export default function HostPage() {
                   className={[
                     "w-full font-extrabold px-4 py-4 rounded-xl flex items-center justify-center gap-2 text-base",
                     isRevealed
-                      ? "bg-amber-500 hover:bg-amber-600 text-black"
+                      ? "bg-amber-500 hover:bg-amber-600 active:scale-95 text-black"
                       : canBigReveal
-                      ? "bg-amber-500 hover:bg-amber-600 text-black animate-reveal-pulse"
+                      ? "bg-amber-500 hover:bg-amber-600 active:scale-95 text-black animate-reveal-pulse"
                       : "bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed",
                   ].join(" ")}
                 >
@@ -577,7 +577,7 @@ export default function HostPage() {
                     "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border font-semibold",
                     busy || isRevealed
                       ? "bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed"
-                      : "bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-white",
+                      : "bg-zinc-800 hover:bg-zinc-700 active:scale-95 border-zinc-700 text-white",
                   ].join(" ")}
                 >
                   <Unlock className="w-4 h-4" /> {busy ? "Working..." : "Unlock All Scores"}
@@ -590,7 +590,7 @@ export default function HostPage() {
 
                 <button
                   onClick={() => copy(revealUrl, "Reveal link")}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 border border-zinc-700 text-white font-semibold"
                 >
                   <Copy className="w-4 h-4" /> Copy Reveal Link
                 </button>

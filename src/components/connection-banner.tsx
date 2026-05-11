@@ -27,7 +27,7 @@ export function ConnectionBanner() {
   if (!disconnected) return null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white text-center text-sm py-2 px-4 font-semibold shadow-lg">
+    <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white text-center text-sm py-2 px-4 font-semibold shadow-lg animate-fade-slide-down">
       Connection lost — scores may not sync. Reload if this persists.
     </div>
   );

@@ -36,11 +36,11 @@ export function ConfirmModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
       onClick={onCancel}
     >
       <div
-        className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-xl"
+        className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-xl animate-fade-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-lg font-extrabold text-zinc-900">{title}</div>

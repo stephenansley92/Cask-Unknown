@@ -27,9 +27,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     <main className="min-h-screen bg-zinc-900 text-white p-6 flex items-center justify-center">
       <div className="w-full max-w-md bg-zinc-800 border border-zinc-700 rounded-3xl p-6 md:p-8 shadow-lg">
         <div className="text-sm text-zinc-400">Cask Unknown</div>
-        <h1 className="text-3xl font-extrabold text-amber-400 mt-2">Login</h1>
+        <h1 className="text-3xl font-extrabold text-amber-400 mt-2">Welcome back</h1>
         <p className="text-zinc-400 mt-2 text-sm">
-          Email and password auth is now enabled with Supabase cookies.
+          Sign in to track your pours and see where you stack up.
         </p>
 
         {message ? (

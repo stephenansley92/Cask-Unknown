@@ -8,8 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter, system-ui, sans-serif);
+  --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,10 +19,35 @@
   }
 }
 
+/* ── Base reset ─────────────────────────────────────────────── */
+*, *::before, *::after {
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Smooth scrollbar on webkit */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
+
+/* ── Interactive base ───────────────────────────────────────── */
+button, a {
+  transition: background-color 0.15s ease, color 0.15s ease,
+              border-color 0.15s ease, box-shadow 0.15s ease,
+              opacity 0.15s ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+  transition: transform 0.08s ease;
 }
 
 /* ── Amber range slider ─────────────────────────────────────── */
@@ -74,6 +99,16 @@ input[type="range"].cask-slider:disabled {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes fadeSlideDown {
+  from { opacity: 0; transform: translateY(-100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -95,8 +130,21 @@ input[type="range"].cask-slider:disabled {
   40%            { transform: translateY(-8px); opacity: 1; }
 }
 
+@keyframes scoreCountUp {
+  from { opacity: 0.4; transform: scale(0.92); }
+  to   { opacity: 1;   transform: scale(1); }
+}
+
 .animate-fade-slide-in {
   animation: fadeSlideIn 0.35s ease both;
+}
+
+.animate-fade-slide-down {
+  animation: fadeSlideDown 0.25s ease both;
+}
+
+.animate-fade-slide-up {
+  animation: fadeSlideUp 0.2s ease both;
 }
 
 .animate-fade-in {
@@ -109,6 +157,10 @@ input[type="range"].cask-slider:disabled {
 
 .animate-reveal-pulse {
   animation: revealPulse 1.4s ease-in-out infinite;
+}
+
+.animate-score-pop {
+  animation: scoreCountUp 0.18s ease both;
 }
 
 .bounce-dot {
