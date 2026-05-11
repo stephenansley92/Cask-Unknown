@@ -71,9 +71,9 @@ export default async function ProfileSetupPage({
 
           <button
             type="submit"
-            className="w-full rounded-2xl bg-zinc-900 px-5 py-3 font-semibold text-white hover:bg-zinc-800"
+            className="w-full rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-95 px-5 py-3 font-semibold text-black"
           >
-            Save
+            Save &amp; Continue
           </button>
         </form>
       </div>

@@ -395,10 +395,7 @@ export default function JoinPage() {
                 {session.title}
               </h1>
               <div className="text-sm text-zinc-500 mt-1">
-                {session.is_blind ? "Blind tasting" : "Tasting"} - Status:{" "}
-                <span className="text-zinc-800 font-semibold">
-                  {session.status}
-                </span>
+                {session.is_blind ? "Blind tasting" : "Open tasting"}
               </div>
             </div>
           </div>

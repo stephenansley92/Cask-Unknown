@@ -61,7 +61,7 @@ export default function SessionsPage() {
               <div className="text-zinc-500 text-sm">No sessions yet on this device.</div>
               <button
                 onClick={() => router.push("/create")}
-                className="mt-4 rounded-2xl bg-zinc-900 text-white px-5 py-3 text-sm font-semibold hover:bg-zinc-800"
+                className="mt-4 rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-black px-5 py-3 text-sm font-semibold"
               >
                 Create a Session
               </button>
@@ -80,7 +80,7 @@ export default function SessionsPage() {
                     </div>
                     <button
                       onClick={() => remove(s.id)}
-                      className="text-zinc-400 hover:text-red-500 text-lg leading-none font-bold shrink-0"
+                      className="text-zinc-400 hover:text-red-500 active:scale-95 text-lg leading-none font-bold shrink-0"
                     >
                       ×
                     </button>
@@ -89,13 +89,13 @@ export default function SessionsPage() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       onClick={() => router.push(`/host/${s.id}?key=${encodeURIComponent(s.key)}`)}
-                      className="rounded-xl bg-zinc-900 text-white px-4 py-2 text-xs font-semibold hover:bg-zinc-800"
+                      className="rounded-xl bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-white px-4 py-2 text-xs font-semibold"
                     >
                       Host Dashboard
                     </button>
                     <button
                       onClick={() => router.push(`/reveal/${s.id}`)}
-                      className="rounded-xl border border-amber-500/50 bg-amber-500/10 text-amber-700 px-4 py-2 text-xs font-semibold hover:bg-amber-500/20"
+                      className="rounded-xl border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 active:scale-95 text-amber-700 px-4 py-2 text-xs font-semibold"
                     >
                       Reveal Screen
                     </button>
@@ -104,7 +104,7 @@ export default function SessionsPage() {
                         const url = `${window.location.origin}/join/${s.id}`;
                         navigator.clipboard.writeText(url).catch(() => {});
                       }}
-                      className="rounded-xl border border-zinc-200 bg-white text-zinc-700 px-4 py-2 text-xs font-semibold hover:bg-zinc-50"
+                      className="rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 active:scale-95 text-zinc-700 px-4 py-2 text-xs font-semibold"
                     >
                       Copy Join Link
                     </button>
@@ -117,7 +117,7 @@ export default function SessionsPage() {
           <div className="mt-5">
             <button
               onClick={() => router.push("/create")}
-              className="w-full rounded-2xl bg-zinc-900 text-white py-3 font-semibold hover:bg-zinc-800"
+              className="w-full rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-black py-3 font-semibold"
             >
               + New Session
             </button>

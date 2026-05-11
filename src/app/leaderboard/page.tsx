@@ -201,7 +201,7 @@ export default async function LeaderboardPage() {
       ratingCount: visibleCount,
       averageScore: visibleAverage,
     };
-  });
+  }).sort((a, b) => b.averageScore - a.averageScore);
 
   return (
     <main className="min-h-screen bg-[#F8F8F6] p-4 text-zinc-900 sm:p-6">
@@ -235,37 +235,43 @@ export default async function LeaderboardPage() {
             </div>
           ) : (
             <div className="mt-6 space-y-3">
-              {rows.map((row) => (
-                <Link
-                  key={row.userId}
-                  href={`/leaderboard/${row.userId}`}
-                  className="block rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4 hover:bg-zinc-50"
-                >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <div>
-                        <div className="font-semibold text-zinc-900 hover:underline">
+              {rows.map((row, idx) => {
+                const rank = idx + 1;
+                const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
+                return (
+                  <Link
+                    key={row.userId}
+                    href={`/leaderboard/${row.userId}`}
+                    className="block rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4 hover:bg-zinc-100 active:scale-[0.98] transition-all"
+                  >
+                    <div className="flex items-center gap-3 md:gap-4">
+                      <div className="shrink-0 w-9 text-center">
+                        {medal ? (
+                          <span className="text-2xl leading-none">{medal}</span>
+                        ) : (
+                          <span className="text-sm font-bold text-zinc-400 tabular-nums">#{rank}</span>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-zinc-900 truncate">
                           {row.displayName}
                         </div>
-                        <div className="mt-1 text-xs text-zinc-500">
-                          {row.ratingCount} total rating
-                          {row.ratingCount === 1 ? "" : "s"}
+                        <div className="mt-0.5 text-xs text-zinc-500">
+                          {row.ratingCount} rating{row.ratingCount === 1 ? "" : "s"}
                         </div>
                       </div>
-                    </div>
 
-                    <div className="text-right">
-                      <div className="text-xs text-zinc-500">Average score</div>
-                      <div className="text-2xl font-extrabold tabular-nums text-zinc-900">
-                        {row.averageScore.toFixed(1)}
-                      </div>
-                      <div className="mt-1 text-xs font-semibold text-zinc-600">
-                        View profile
+                      <div className="shrink-0 text-right">
+                        <div className="text-2xl font-extrabold tabular-nums text-zinc-900">
+                          {row.averageScore.toFixed(1)}
+                        </div>
+                        <div className="text-xs text-zinc-400">avg</div>
                       </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>

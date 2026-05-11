@@ -240,6 +240,9 @@ export default function ScorePage() {
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [confirmLock, setConfirmLock] = useState<{ kind: "core" | "final"; message: string } | null>(null);
   const [flashedPour, setFlashedPour] = useState<string | null>(null);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [prevTotal, setPrevTotal] = useState<number>(0);
+  const [totalKey, setTotalKey] = useState<number>(0);
   const saveHintTimer = useRef<number | null>(null);
   const saveDebounceTimer = useRef<number | null>(null);
   const scrollLockTimer = useRef<number | null>(null);
@@ -271,6 +274,13 @@ export default function ScorePage() {
   }, [activePourId, draftByPour]);
 
   const total = useMemo(() => computeTotal(activeDraft), [activeDraft]);
+
+  useEffect(() => {
+    if (total !== prevTotal) {
+      setPrevTotal(total);
+      setTotalKey((k) => k + 1);
+    }
+  }, [total, prevTotal]);
 
   const status = (session?.status || "").toLowerCase();
   const isRevealed = status === "revealed";
@@ -861,10 +871,8 @@ export default function ScorePage() {
                 Joined as <span className="font-semibold text-zinc-900">{participant.display_name}</span>
               </div>
               <div className="text-xs text-zinc-500 mt-1">
-                Status: <span className="font-semibold text-zinc-800">{session.status}</span>
-                {" • "}
                 Progress: <span className="font-semibold text-zinc-800">{completedCount}</span> /{" "}
-                {pours.length}
+                {pours.length} pours
               </div>
               {/* Core category completion dots for active pour */}
               {activePourId && (
@@ -897,7 +905,7 @@ export default function ScorePage() {
               ) : (
                 <div className="text-xs text-transparent">Saved ✓</div>
               )}
-              <div className="text-2xl font-extrabold tabular-nums">
+              <div key={totalKey} className="text-2xl font-extrabold tabular-nums animate-score-pop">
                 {total}
                 <span className="text-sm text-zinc-400 font-semibold">/100</span>
               </div>
@@ -991,13 +999,13 @@ export default function ScorePage() {
             <div className="flex gap-2">
               <button
                 onClick={goPrevPour}
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold hover:bg-zinc-50 min-w-[64px]"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold hover:bg-zinc-50 active:scale-95 min-w-[64px]"
               >
                 Prev
               </button>
               <button
                 onClick={goNextPour}
-                className="rounded-2xl border border-zinc-900 bg-zinc-900 px-4 py-3 text-sm font-semibold text-white hover:bg-zinc-800 min-w-[64px]"
+                className="rounded-2xl border border-zinc-900 bg-zinc-900 px-4 py-3 text-sm font-semibold text-white hover:bg-zinc-800 active:scale-95 min-w-[64px]"
               >
                 Next
               </button>
@@ -1013,7 +1021,7 @@ export default function ScorePage() {
                 "w-full rounded-2xl px-4 py-3 text-sm font-semibold border flex items-center justify-center gap-2",
                 activeCoreLocked || activeFinalLocked
                   ? "border-zinc-200 bg-zinc-100 text-zinc-500 cursor-not-allowed"
-                  : "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800",
+                  : "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 active:scale-95",
               ].join(" ")}
             >
               {activeCoreLocked ? <Lock size={15} /> : <LockOpen size={15} />}
@@ -1033,7 +1041,7 @@ export default function ScorePage() {
                 "w-full rounded-2xl px-4 py-3 text-sm font-extrabold border flex items-center justify-center gap-2",
                 !revealScoringEnabled || activeFinalLocked
                   ? "border-zinc-200 bg-zinc-100 text-zinc-500 cursor-not-allowed"
-                  : "border-amber-600 bg-amber-500 text-black hover:bg-amber-600",
+                  : "border-amber-600 bg-amber-500 text-black hover:bg-amber-600 active:scale-95",
               ].join(" ")}
             >
               {activeFinalLocked ? <Lock size={15} /> : <CheckCircle2 size={15} />}
@@ -1059,9 +1067,15 @@ export default function ScorePage() {
                   isScrollLocked ||
                   (isCore ? activeCoreLocked : isRevealField ? !revealScoringEnabled : false);
 
+              const isExpanded = expandedCategory === c.key;
+
               return (
                 <div key={c.key} className="border-t border-zinc-100 pt-4 first:border-t-0 first:pt-0">
-                  <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedCategory(isExpanded ? null : c.key)}
+                    className="w-full flex items-center justify-between text-left"
+                  >
                     <div className="font-semibold text-zinc-900">
                       {c.label}
                       {isRevealField && !revealScoringEnabled ? (
@@ -1071,17 +1085,22 @@ export default function ScorePage() {
                         <span className="ml-2 text-[11px] font-semibold text-amber-700">(final locked)</span>
                       ) : null}
                     </div>
-                    <div className="text-xs text-zinc-500">
-                      [{c.min}–{c.max}]{" "}
-                      <span className="ml-2 font-semibold text-zinc-800 tabular-nums">{val}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-500">
+                        [{c.min}–{c.max}]{" "}
+                        <span className="font-semibold text-zinc-800 tabular-nums">{val}</span>
+                      </span>
+                      <span className={["text-zinc-400 text-xs transition-transform duration-150", isExpanded ? "rotate-90" : ""].join(" ")}>▸</span>
                     </div>
-                  </div>
+                  </button>
 
-                  <div className="mt-1 text-xs leading-5 text-zinc-500">
-                    {c.description}
-                    <br />
-                    {c.examples}
-                  </div>
+                  {isExpanded && (
+                    <div className="mt-1.5 text-xs leading-5 text-zinc-500 animate-fade-in">
+                      {c.description}
+                      <br />
+                      <span className="text-zinc-400">{c.examples}</span>
+                    </div>
+                  )}
 
                   <div className="mt-2">
                     <div className="relative">
