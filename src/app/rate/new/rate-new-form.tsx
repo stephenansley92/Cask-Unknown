@@ -102,6 +102,8 @@ function whiskeyToFormValues(whiskey: WhiskeyOption): WhiskeyFormValues {
   };
 }
 
+const INPUT_CLS = "w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30";
+
 export function RateNewForm({
   userId,
   template,
@@ -124,6 +126,8 @@ export function RateNewForm({
   const [scoresByItemId, setScoresByItemId] = useState<Record<string, number>>(
     () => Object.fromEntries(items.map((item) => [item.id, 0]))
   );
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const scrollLockTimer = useRef<number | null>(null);
   const activeSliderTouch = useRef<SliderTouchState | null>(null);
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
@@ -232,6 +236,7 @@ export function RateNewForm({
       engaged: false,
       canceled: false,
     };
+    setDraggingItemId(itemId);
   };
 
   const handleSliderTouchMove = (e: TouchEvent<HTMLInputElement>) => {
@@ -292,6 +297,7 @@ export function RateNewForm({
     }
 
     activeSliderTouch.current = null;
+    setDraggingItemId(null);
   };
 
   const updateNewWhiskey = (field: keyof WhiskeyFormValues, value: string) => {
@@ -491,12 +497,13 @@ export function RateNewForm({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-zinc-200 p-5">
-        <div className="text-sm font-semibold text-zinc-800">
+      {/* ── 1. Select whiskey ─────────────────────────────────── */}
+      <div className="rounded-3xl border border-zinc-700 p-5">
+        <div className="text-sm font-semibold text-zinc-200">
           1. Select a whiskey
         </div>
         <div className="mt-3">
-          <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
             Search
           </label>
           <input
@@ -506,14 +513,14 @@ export function RateNewForm({
               setShowSearchResults(true);
             }}
             placeholder="Search whiskey library"
-            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+            className={`mt-2 ${INPUT_CLS}`}
           />
         </div>
 
         {showSearchResults ? (
           <div className="mt-4 space-y-2">
             {filteredWhiskeys.length === 0 ? (
-              <div className="rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4 text-sm text-zinc-500">
+              <div className="rounded-2xl bg-zinc-900 border border-zinc-700 px-4 py-4 text-sm text-zinc-400">
                 {!shouldSearchWhiskeyLibrary
                   ? whiskeys.length === 0
                     ? "No whiskeys yet. Create one below to continue."
@@ -532,10 +539,10 @@ export function RateNewForm({
                     type="button"
                     onClick={() => handleSelectWhiskey(whiskey)}
                     className={[
-                      "w-full text-left rounded-2xl border px-4 py-3",
+                      "w-full text-left rounded-2xl border px-4 py-3 active:scale-[0.99]",
                       isSelected
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+                        ? "border-amber-500 bg-amber-500/15 text-white"
+                        : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-700",
                     ].join(" ")}
                   >
                     <div className="font-semibold">{whiskey.name}</div>
@@ -543,7 +550,7 @@ export function RateNewForm({
                       <div
                         className={[
                           "mt-1 text-xs",
-                          isSelected ? "text-white/80" : "text-zinc-500",
+                          isSelected ? "text-amber-200" : "text-zinc-400",
                         ].join(" ")}
                       >
                         {primaryMeta}
@@ -553,7 +560,7 @@ export function RateNewForm({
                       <div
                         className={[
                           "mt-1 text-[11px]",
-                          isSelected ? "text-white/70" : "text-zinc-500",
+                          isSelected ? "text-amber-300/70" : "text-zinc-500",
                         ].join(" ")}
                       >
                         {secondaryMeta}
@@ -567,13 +574,13 @@ export function RateNewForm({
         ) : null}
 
         {selectedWhiskey ? (
-          <div className="mt-4 rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4">
-            <div className="text-xs text-zinc-500">Selected whiskey</div>
-            <div className="mt-1 font-semibold text-zinc-900">
+          <div className="mt-4 rounded-2xl bg-zinc-900 border border-amber-500/40 px-4 py-4">
+            <div className="text-xs text-zinc-400">Selected whiskey</div>
+            <div className="mt-1 font-semibold text-white">
               {selectedWhiskey.name}
             </div>
             {whiskeyPrimaryMeta(selectedWhiskey) ? (
-              <div className="mt-1 text-xs text-zinc-500">
+              <div className="mt-1 text-xs text-zinc-400">
                 {whiskeyPrimaryMeta(selectedWhiskey)}
               </div>
             ) : null}
@@ -584,8 +591,9 @@ export function RateNewForm({
         ) : null}
       </div>
 
-      <div className="rounded-3xl border border-zinc-200 p-5">
-        <div className="text-sm font-semibold text-zinc-800">
+      {/* ── 2. Create new whiskey ──────────────────────────────── */}
+      <div className="rounded-3xl border border-zinc-700 p-5">
+        <div className="text-sm font-semibold text-zinc-200">
           2. Create new whiskey
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3">
@@ -593,21 +601,21 @@ export function RateNewForm({
             value={newWhiskey.name}
             onChange={(e) => updateNewWhiskey("name", e.target.value)}
             placeholder="Name (required, e.g. Eagle Rare 10)"
-            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+            className={INPUT_CLS}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
               value={newWhiskey.distillery}
               onChange={(e) => updateNewWhiskey("distillery", e.target.value)}
               placeholder="Distillery (optional, e.g. Buffalo Trace)"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
             <input
               value={newWhiskey.proof}
               onChange={(e) => updateNewWhiskey("proof", e.target.value)}
               placeholder="Proof (optional, e.g. 125)"
               inputMode="decimal"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -615,13 +623,13 @@ export function RateNewForm({
               value={newWhiskey.bottleSize}
               onChange={(e) => updateNewWhiskey("bottleSize", e.target.value)}
               placeholder="Bottle size (optional, e.g. 750ml)"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
             <input
               value={newWhiskey.age}
               onChange={(e) => updateNewWhiskey("age", e.target.value)}
               placeholder="Age (optional, e.g. 10 years)"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -629,13 +637,13 @@ export function RateNewForm({
               value={newWhiskey.category}
               onChange={(e) => updateNewWhiskey("category", e.target.value)}
               placeholder="Category (optional, e.g. Whiskey)"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
             <input
               value={newWhiskey.subcategory}
               onChange={(e) => updateNewWhiskey("subcategory", e.target.value)}
               placeholder="Subcategory (optional, e.g. Bourbon)"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -643,13 +651,13 @@ export function RateNewForm({
               value={newWhiskey.rarity}
               onChange={(e) => updateNewWhiskey("rarity", e.target.value)}
               placeholder="Rarity (optional, e.g. Limited release)"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
             <input
               value={newWhiskey.status}
               onChange={(e) => updateNewWhiskey("status", e.target.value)}
               placeholder="Status (optional, e.g. Open)"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -658,105 +666,126 @@ export function RateNewForm({
               onChange={(e) => updateNewWhiskey("msrp", e.target.value)}
               placeholder="MSRP (optional, e.g. 59.99)"
               inputMode="decimal"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
             <input
               value={newWhiskey.secondary}
               onChange={(e) => updateNewWhiskey("secondary", e.target.value)}
               placeholder="Secondary (optional, e.g. 149.99)"
               inputMode="decimal"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
             <input
               value={newWhiskey.paid}
               onChange={(e) => updateNewWhiskey("paid", e.target.value)}
               placeholder="Paid (optional, e.g. 79.99)"
               inputMode="decimal"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className={INPUT_CLS}
             />
           </div>
           <button
             type="button"
             onClick={createWhiskey}
             disabled={creatingWhiskey}
-            className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-700 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 active:scale-95 disabled:opacity-60"
           >
             {creatingWhiskey ? "Creating..." : "Create & Select"}
           </button>
         </div>
       </div>
 
-      <div className="rounded-3xl border border-zinc-200 p-5">
+      {/* ── 3. Score ──────────────────────────────────────────── */}
+      <div className="rounded-3xl border border-zinc-700 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-zinc-800">
+            <div className="text-sm font-semibold text-zinc-200">
               3. Score with {template.name}
             </div>
-            <div className="mt-1 text-xs text-zinc-500">
+            <div className="mt-1 text-xs text-zinc-400">
               Uses the Blind Mode scoring template in the same order and weights.
             </div>
           </div>
 
-          <div className="text-right">
-            <div className="text-2xl font-extrabold tabular-nums">{totalScore}</div>
-            <div className="text-xs text-zinc-500">Total</div>
+          <div className="text-right shrink-0">
+            <div className="text-2xl font-extrabold tabular-nums text-white">{totalScore}</div>
+            <div className="text-xs text-zinc-400">Total</div>
           </div>
         </div>
 
-        <div className="mt-4 space-y-4">
+        <div className="mt-4 space-y-0">
           {items.map((item) =>
             (() => {
               const blindSetting = getBlindModeCategorySetting(item.itemKey);
               const min = blindSetting?.min ?? 0;
               const max = blindSetting?.max ?? item.maxPoints;
               const value = scoresByItemId[item.id] ?? 0;
+              const isExpanded = expandedItemId === item.id;
 
               return (
                 <div
                   key={item.id}
-                  className="rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4"
+                  className="border-t border-zinc-700 pt-4 mt-4 first:border-t-0 first:pt-0 first:mt-0"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold text-zinc-900">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
+                    className="w-full flex items-center justify-between text-left"
+                  >
+                    <div className="font-semibold text-zinc-100">
                       {blindSetting?.label || item.label}
                     </div>
-                    <div className="text-xs text-zinc-500">
-                      [{min}-{max}]{" "}
-                      <span className="ml-2 font-semibold text-zinc-800 tabular-nums">
-                        {value}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-zinc-400">
+                        [{min}–{max}]{" "}
+                        <span className="font-semibold text-zinc-200 tabular-nums">{value}</span>
                       </span>
+                      {blindSetting ? (
+                        <span className={["text-zinc-500 text-xs transition-transform duration-150", isExpanded ? "rotate-90" : ""].join(" ")}>▸</span>
+                      ) : null}
                     </div>
-                  </div>
+                  </button>
 
-                  {blindSetting ? (
-                    <div className="mt-1 text-xs leading-5 text-zinc-500">
+                  {isExpanded && blindSetting ? (
+                    <div className="mt-1.5 text-xs leading-5 text-zinc-400 animate-fade-in">
                       {blindSetting.description}
                       <br />
-                      {blindSetting.examples}
+                      <span className="text-zinc-500">{blindSetting.examples}</span>
                     </div>
                   ) : null}
 
-                  <div className="mt-3">
-                    <input
-                      type="range"
-                      min={min}
-                      max={max}
-                      step={1}
-                      value={value}
-                      onChange={(e) => {
-                        if (activeSliderTouch.current) return;
-                        setSliderValue(item.id, Number(e.target.value), min, max);
-                      }}
-                      onTouchStart={(e) => handleSliderTouchStart(item.id, min, max, e)}
-                      onTouchMove={handleSliderTouchMove}
-                      onTouchEnd={handleSliderTouchEnd}
-                      onTouchCancel={() => {
-                        activeSliderTouch.current = null;
-                      }}
-                      className="w-full accent-zinc-900"
-                      style={{ touchAction: "pan-y" }}
-                    />
-                    <div className="mt-1 flex justify-between text-[11px] text-zinc-400 tabular-nums">
+                  <div className="mt-2">
+                    <div className="relative">
+                      <input
+                        type="range"
+                        min={min}
+                        max={max}
+                        step={1}
+                        value={value}
+                        onChange={(e) => {
+                          if (activeSliderTouch.current) return;
+                          setSliderValue(item.id, Number(e.target.value), min, max);
+                        }}
+                        onTouchStart={(e) => handleSliderTouchStart(item.id, min, max, e)}
+                        onTouchMove={handleSliderTouchMove}
+                        onTouchEnd={handleSliderTouchEnd}
+                        onTouchCancel={() => {
+                          activeSliderTouch.current = null;
+                          setDraggingItemId(null);
+                        }}
+                        disabled={isScrollLocked}
+                        className={["w-full cask-slider", isScrollLocked ? "opacity-40" : "opacity-100"].join(" ")}
+                        style={{
+                          touchAction: "pan-y",
+                          background: `linear-gradient(to right, #f59e0b 0%, #f59e0b ${((value - min) / (max - min)) * 100}%, #3f3f46 ${((value - min) / (max - min)) * 100}%, #3f3f46 100%)`,
+                        }}
+                      />
+                      {draggingItemId === item.id && (
+                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white text-sm font-extrabold px-3 py-1 rounded-xl pointer-events-none tabular-nums border border-zinc-700">
+                          {value}
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-zinc-500 tabular-nums">
                       <span>{min}</span>
                       <span>{max}</span>
                     </div>
@@ -767,19 +796,19 @@ export function RateNewForm({
           )}
         </div>
 
-        <div className="mt-4">
-          <label className="block text-sm font-semibold text-zinc-800">Notes</label>
+        <div className="mt-5 border-t border-zinc-700 pt-4">
+          <label className="block text-sm font-semibold text-zinc-200">Notes</label>
           <textarea
             ref={notesRef}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Optional notes"
-            className="mt-2 w-full min-h-[96px] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+            className="mt-2 w-full min-h-[96px] rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
           />
         </div>
 
         {error ? (
-          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="mt-4 rounded-2xl border border-red-800 bg-red-900/30 px-4 py-3 text-sm text-red-300">
             {error}
           </div>
         ) : null}
@@ -788,7 +817,7 @@ export function RateNewForm({
           type="button"
           onClick={saveRating}
           disabled={savingRating || creatingWhiskey || items.length === 0}
-          className="mt-4 w-full rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
+          className="mt-4 w-full rounded-2xl px-5 py-3 font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 text-black disabled:opacity-60"
         >
           {savingRating ? "Saving..." : "Save Rating"}
         </button>

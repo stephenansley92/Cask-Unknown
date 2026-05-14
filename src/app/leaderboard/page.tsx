@@ -49,9 +49,9 @@ export default async function LeaderboardPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#F8F8F6] p-4 text-zinc-900 sm:p-6">
-        <div className="mx-auto max-w-4xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="text-sm text-zinc-500">Cask Unknown</div>
+      <main className="min-h-screen bg-zinc-900 p-4 text-white sm:p-6">
+        <div className="mx-auto max-w-4xl rounded-3xl border border-zinc-700 bg-zinc-800 p-6 shadow-sm">
+          <div className="text-sm text-zinc-400">Cask Unknown</div>
           <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
             Community
           </h1>
@@ -204,32 +204,32 @@ export default async function LeaderboardPage() {
   }).sort((a, b) => b.averageScore - a.averageScore);
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] p-4 text-zinc-900 sm:p-6">
+    <main className="min-h-screen bg-zinc-900 p-4 text-white sm:p-6">
       <div className="mx-auto max-w-4xl">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="rounded-3xl border border-zinc-700 bg-zinc-800 p-5 shadow-sm md:p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <div className="text-sm text-zinc-500">Cask Unknown</div>
+              <div className="text-sm text-zinc-400">Cask Unknown</div>
               <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
                 Community
               </h1>
-              <p className="mt-2 text-sm text-zinc-500">
+              <p className="mt-2 text-sm text-zinc-400">
                 Public profiles only. Click a name to open that user&apos;s public profile.
               </p>
             </div>
 
             <Link
               href="/"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-700 px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-700 active:scale-95"
             >
               Back Home
             </Link>
           </div>
 
           {rows.length === 0 ? (
-            <div className="mt-6 rounded-3xl border border-zinc-200 p-6 text-center">
+            <div className="mt-6 rounded-3xl border border-zinc-700 p-6 text-center">
               <div className="text-lg font-semibold">No public profiles yet</div>
-              <div className="mt-2 text-sm text-zinc-500">
+              <div className="mt-2 text-sm text-zinc-400">
                 Community members will appear here once they have a public profile.
               </div>
             </div>
@@ -242,7 +242,7 @@ export default async function LeaderboardPage() {
                   <Link
                     key={row.userId}
                     href={`/leaderboard/${row.userId}`}
-                    className="block rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4 hover:bg-zinc-100 active:scale-[0.98] transition-all"
+                    className="block rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4 hover:bg-zinc-700 active:scale-[0.98] transition-all"
                   >
                     <div className="flex items-center gap-3 md:gap-4">
                       <div className="shrink-0 w-9 text-center">
@@ -254,16 +254,16 @@ export default async function LeaderboardPage() {
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-zinc-900 truncate">
+                        <div className="font-semibold text-white truncate">
                           {row.displayName}
                         </div>
-                        <div className="mt-0.5 text-xs text-zinc-500">
+                        <div className="mt-0.5 text-xs text-zinc-400">
                           {row.ratingCount} rating{row.ratingCount === 1 ? "" : "s"}
                         </div>
                       </div>
 
                       <div className="shrink-0 text-right">
-                        <div className="text-2xl font-extrabold tabular-nums text-zinc-900">
+                        <div className="text-2xl font-extrabold tabular-nums text-white">
                           {row.averageScore.toFixed(1)}
                         </div>
                         <div className="text-xs text-zinc-400">avg</div>

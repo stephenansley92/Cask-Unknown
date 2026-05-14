@@ -363,7 +363,7 @@ export default function JoinPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
+      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
         <div className="text-zinc-500">Loading...</div>
       </main>
     );
@@ -371,7 +371,7 @@ export default function JoinPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
+      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm">
           <div className="text-2xl font-extrabold tracking-tight">
             Join Error
@@ -385,9 +385,9 @@ export default function JoinPage() {
   if (!session) return null;
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-6">
+    <main className="min-h-screen bg-zinc-900 text-white p-6">
       <div className="max-w-md mx-auto">
-        <div className="bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm">
+        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-sm text-zinc-500">Cask Unknown</div>
@@ -415,7 +415,7 @@ export default function JoinPage() {
 
               <button
                 onClick={continueAsExisting}
-                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 flex items-center justify-center gap-2"
+                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 text-black flex items-center justify-center gap-2"
               >
                 Continue to Scoring <ChevronRight size={16} />
               </button>
@@ -428,19 +428,19 @@ export default function JoinPage() {
           ) : (
             <div className="mt-6">
               {lockedProfileName ? (
-                <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4">
-                  <div className="text-xs text-zinc-500">Your profile</div>
-                  <div className="mt-1 font-semibold text-zinc-900">
+                <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4">
+                  <div className="text-xs text-zinc-400">Your profile</div>
+                  <div className="mt-1 font-semibold text-white">
                     {lockedProfileName}
                   </div>
-                  <div className="mt-2 text-xs text-zinc-500">
+                  <div className="mt-2 text-xs text-zinc-400">
                     Profile names are locked after setup. Ask the admin to
                     change it.
                   </div>
                 </div>
               ) : (
                 <>
-                  <label className="block text-sm font-semibold text-zinc-800">
+                  <label className="block text-sm font-semibold text-zinc-200">
                     Your profile
                   </label>
 
@@ -452,7 +452,7 @@ export default function JoinPage() {
                         setCustomProfileName("");
                       }
                     }}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                    className="mt-2 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                   >
                     <option value="">Select a saved profile</option>
                     {profileOptions.map((profile) => (
@@ -480,7 +480,7 @@ export default function JoinPage() {
                         setSelectedProfile("");
                       }
                     }}
-                    className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                    className="mt-2 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                     placeholder="Select or type a new profile name"
                   />
                 </>
@@ -489,7 +489,7 @@ export default function JoinPage() {
               <button
                 onClick={submit}
                 disabled={submitting}
-                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60 flex items-center justify-center gap-2"
+                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 text-black disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {submitting ? "Joining..." : "Join Session"}
                 {!submitting && <ChevronRight size={16} />}
