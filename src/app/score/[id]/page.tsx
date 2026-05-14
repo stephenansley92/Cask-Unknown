@@ -810,18 +810,18 @@ export default function ScorePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
-        <div className="text-zinc-500">Loading scoring…</div>
+      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
+        <div className="text-zinc-400">Loading scoring…</div>
       </main>
     );
   }
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm">
+      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-zinc-800 border border-zinc-700 rounded-3xl p-6 shadow-sm">
           <div className="text-2xl font-extrabold tracking-tight">Scoring Error</div>
-          <p className="text-zinc-600 mt-2">{error}</p>
+          <p className="text-zinc-400 mt-2">{error}</p>
         </div>
       </main>
     );
@@ -831,10 +831,10 @@ export default function ScorePage() {
 
   if (pours.length === 0) {
     return (
-      <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm text-center">
+      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-zinc-800 border border-zinc-700 rounded-3xl p-6 shadow-sm text-center">
           <div className="text-2xl font-extrabold tracking-tight">No pours yet</div>
-          <p className="text-zinc-500 mt-2 text-sm">
+          <p className="text-zinc-400 mt-2 text-sm">
             The host hasn&apos;t added any pours to this session. Check back once they set everything up.
           </p>
         </div>
@@ -843,7 +843,7 @@ export default function ScorePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
+    <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6">
       <ConnectionBanner />
       <ConfirmModal
         open={!!confirmLock}
@@ -862,16 +862,16 @@ export default function ScorePage() {
           </div>
         ) : null}
         {/* Header */}
-        <div className="bg-white border border-zinc-200 rounded-3xl p-5 shadow-sm">
+        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-xs text-zinc-500">Cask Unknown</div>
+              <div className="text-xs text-zinc-400">Cask Unknown</div>
               <div className="text-xl font-extrabold tracking-tight mt-1">{session.title}</div>
-              <div className="text-sm text-zinc-500 mt-1">
-                Joined as <span className="font-semibold text-zinc-900">{participant.display_name}</span>
+              <div className="text-sm text-zinc-400 mt-1">
+                Joined as <span className="font-semibold text-white">{participant.display_name}</span>
               </div>
-              <div className="text-xs text-zinc-500 mt-1">
-                Progress: <span className="font-semibold text-zinc-800">{completedCount}</span> /{" "}
+              <div className="text-xs text-zinc-400 mt-1">
+                Progress: <span className="font-semibold text-zinc-200">{completedCount}</span> /{" "}
                 {pours.length} pours
               </div>
               {/* Core category completion dots for active pour */}
@@ -885,7 +885,7 @@ export default function ScorePage() {
                         title={c.label}
                         className={[
                           "w-2 h-2 rounded-full transition-colors",
-                          val > 0 ? "bg-amber-400" : "bg-zinc-300",
+                          val > 0 ? "bg-amber-400" : "bg-zinc-600",
                         ].join(" ")}
                       />
                     );
@@ -899,7 +899,7 @@ export default function ScorePage() {
 
             <div className="flex flex-col items-end gap-2">
               {saveHint ? (
-                <div className="text-xs text-zinc-700 bg-[#F8F8F6] border border-zinc-200 rounded-full px-3 py-1">
+                <div className="text-xs text-zinc-300 bg-zinc-700 border border-zinc-600 rounded-full px-3 py-1">
                   {saveHint}
                 </div>
               ) : (
@@ -912,14 +912,14 @@ export default function ScorePage() {
               {hostDashboardUrl && (
                 <button
                   onClick={() => router.push(hostDashboardUrl)}
-                  className="rounded-2xl border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                  className="rounded-2xl border border-amber-500/50 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-400 hover:bg-amber-500/25 active:scale-95"
                 >
                   Host Dashboard
                 </button>
               )}
               <button
                 onClick={() => router.push("/profile")}
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                className="rounded-2xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-300 hover:bg-zinc-700 active:scale-95"
               >
                 View Profile
               </button>
@@ -944,7 +944,7 @@ export default function ScorePage() {
                       "shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 transition-colors",
                       isActive
                         ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-200 bg-white text-zinc-900",
+                        : "border-zinc-700 bg-zinc-700 text-zinc-100",
                       flashedPour === p.id ? "animate-lock-flash" : "",
                     ].join(" ")}
                   >
@@ -953,7 +953,7 @@ export default function ScorePage() {
                         "w-8 h-8 rounded-full flex items-center justify-center font-bold",
                         isActive
                           ? "bg-white/10 border border-white/15"
-                          : "bg-[#F8F8F6] border border-zinc-200",
+                          : "bg-zinc-900 border border-zinc-600",
                       ].join(" ")}
                     >
                       {p.code}
@@ -977,19 +977,19 @@ export default function ScorePage() {
               })}
             </div>
             {pours.length > 3 && (
-              <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-10 bg-gradient-to-l from-white" />
+              <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-10 bg-gradient-to-l from-zinc-800" />
             )}
             </div>
           </div>
         </div>
 
         {/* Scoring Card */}
-        <div className="mt-4 bg-white border border-zinc-200 rounded-3xl p-5 shadow-sm">
+        <div className="mt-4 bg-zinc-800 border border-zinc-700 rounded-3xl p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs text-zinc-500">Scoring</div>
+              <div className="text-xs text-zinc-400">Scoring</div>
               <div className="text-lg font-extrabold tracking-tight">Pour {activePour?.code ?? "—"}</div>
-              <div className="text-xs text-zinc-500 mt-1">
+              <div className="text-xs text-zinc-400 mt-1">
                 Core scores {activeCoreLocked ? "locked" : "editable"} • Packaging/Value{" "}
                 {revealScoringEnabled ? "available" : "available after host unlocks"}
                 {activeFinalLocked ? " • FINAL LOCKED" : ""}
@@ -1020,7 +1020,7 @@ export default function ScorePage() {
               className={[
                 "w-full rounded-2xl px-4 py-3 text-sm font-semibold border flex items-center justify-center gap-2",
                 activeCoreLocked || activeFinalLocked
-                  ? "border-zinc-200 bg-zinc-100 text-zinc-500 cursor-not-allowed"
+                  ? "border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed"
                   : "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 active:scale-95",
               ].join(" ")}
             >
@@ -1040,7 +1040,7 @@ export default function ScorePage() {
               className={[
                 "w-full rounded-2xl px-4 py-3 text-sm font-extrabold border flex items-center justify-center gap-2",
                 !revealScoringEnabled || activeFinalLocked
-                  ? "border-zinc-200 bg-zinc-100 text-zinc-500 cursor-not-allowed"
+                  ? "border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed"
                   : "border-amber-600 bg-amber-500 text-black hover:bg-amber-600 active:scale-95",
               ].join(" ")}
             >
@@ -1070,25 +1070,25 @@ export default function ScorePage() {
               const isExpanded = expandedCategory === c.key;
 
               return (
-                <div key={c.key} className="border-t border-zinc-100 pt-4 first:border-t-0 first:pt-0">
+                <div key={c.key} className="border-t border-zinc-700 pt-4 first:border-t-0 first:pt-0">
                   <button
                     type="button"
                     onClick={() => setExpandedCategory(isExpanded ? null : c.key)}
                     className="w-full flex items-center justify-between text-left"
                   >
-                    <div className="font-semibold text-zinc-900">
+                    <div className="font-semibold text-zinc-100">
                       {c.label}
                       {isRevealField && !revealScoringEnabled ? (
-                        <span className="ml-2 text-[11px] font-semibold text-zinc-400">(locked)</span>
+                        <span className="ml-2 text-[11px] font-semibold text-zinc-500">(locked)</span>
                       ) : null}
                       {activeFinalLocked ? (
-                        <span className="ml-2 text-[11px] font-semibold text-amber-700">(final locked)</span>
+                        <span className="ml-2 text-[11px] font-semibold text-amber-400">(final locked)</span>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-zinc-500">
+                      <span className="text-xs text-zinc-400">
                         [{c.min}–{c.max}]{" "}
-                        <span className="font-semibold text-zinc-800 tabular-nums">{val}</span>
+                        <span className="font-semibold text-zinc-200 tabular-nums">{val}</span>
                       </span>
                       <span className={["text-zinc-400 text-xs transition-transform duration-150", isExpanded ? "rotate-90" : ""].join(" ")}>▸</span>
                     </div>
@@ -1144,17 +1144,17 @@ export default function ScorePage() {
             })}
 
             {/* Notes */}
-            <div className="border-t border-zinc-100 pt-4">
+            <div className="border-t border-zinc-700 pt-4">
               <div className="flex items-center justify-between">
-                <div className="font-semibold text-zinc-900">Notes</div>
-                <div className="text-xs text-zinc-500">(optional)</div>
+                <div className="font-semibold text-zinc-100">Notes</div>
+                <div className="text-xs text-zinc-400">(optional)</div>
               </div>
               <textarea
                 ref={notesRef}
                 value={activeDraft.notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="e.g., vanilla + caramel"
-                className="mt-2 w-full min-h-[84px] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+                className="mt-2 w-full min-h-[84px] rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
               />
               <div className="mt-2 text-xs text-zinc-500">Notes auto-save too.</div>
             </div>

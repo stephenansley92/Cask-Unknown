@@ -39,18 +39,18 @@ export default function SessionsPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
+    <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6">
       <div className="max-w-lg mx-auto">
-        <div className="bg-white border border-zinc-200 rounded-3xl p-5 shadow-sm">
+        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs text-zinc-500">Cask Unknown</div>
+              <div className="text-xs text-zinc-400">Cask Unknown</div>
               <div className="text-2xl font-extrabold tracking-tight mt-1">My Sessions</div>
-              <div className="text-sm text-zinc-500 mt-1">Sessions you've hosted on this device.</div>
+              <div className="text-sm text-zinc-400 mt-1">Sessions you've hosted on this device.</div>
             </div>
             <button
               onClick={() => router.push("/")}
-              className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-50"
             >
               Home
             </button>
@@ -58,7 +58,7 @@ export default function SessionsPage() {
 
           {sessions.length === 0 ? (
             <div className="mt-6 rounded-3xl border border-zinc-200 p-6 text-center">
-              <div className="text-zinc-500 text-sm">No sessions yet on this device.</div>
+              <div className="text-zinc-400 text-sm">No sessions yet on this device.</div>
               <button
                 onClick={() => router.push("/create")}
                 className="mt-4 rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-black px-5 py-3 text-sm font-semibold"
@@ -71,12 +71,12 @@ export default function SessionsPage() {
               {sessions.map((s) => (
                 <div
                   key={s.id}
-                  className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4"
+                  className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-semibold truncate">{s.title}</div>
-                      <div className="text-xs text-zinc-500 mt-0.5">{formatDate(s.createdAt)}</div>
+                      <div className="text-xs text-zinc-400 mt-0.5">{formatDate(s.createdAt)}</div>
                     </div>
                     <button
                       onClick={() => remove(s.id)}
@@ -104,7 +104,7 @@ export default function SessionsPage() {
                         const url = `${window.location.origin}/join/${s.id}`;
                         navigator.clipboard.writeText(url).catch(() => {});
                       }}
-                      className="rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 active:scale-95 text-zinc-700 px-4 py-2 text-xs font-semibold"
+                      className="rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 active:scale-95 text-zinc-200 px-4 py-2 text-xs font-semibold"
                     >
                       Copy Join Link
                     </button>

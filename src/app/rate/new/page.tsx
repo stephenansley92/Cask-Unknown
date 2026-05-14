@@ -66,14 +66,14 @@ export default async function RateNewPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
+    <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6">
       <div className="max-w-3xl mx-auto">
-        <div className="bg-white border border-zinc-200 rounded-3xl p-5 md:p-6 shadow-sm">
-          <div className="text-sm text-zinc-500">Cask Unknown</div>
+        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-5 md:p-6 shadow-sm">
+          <div className="text-sm text-zinc-400">Cask Unknown</div>
           <h1 className="text-3xl font-extrabold tracking-tight mt-2">
             Rate New
           </h1>
-          <p className="text-sm text-zinc-500 mt-3">
+          <p className="text-sm text-zinc-400 mt-3">
             Pick a whiskey, score it with the default Blind Mode template, and
             save it to your personal history.
           </p>

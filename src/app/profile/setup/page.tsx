@@ -34,13 +34,13 @@ export default async function ProfileSetupPage({
     typeof searchParams?.message === "string" ? searchParams.message : "";
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6 flex items-center justify-center">
-      <div className="w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-        <div className="text-sm text-zinc-500">Cask Unknown</div>
+    <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6 flex items-center justify-center">
+      <div className="w-full max-w-md rounded-3xl border border-zinc-700 bg-zinc-800 p-6 shadow-sm">
+        <div className="text-sm text-zinc-400">Cask Unknown</div>
         <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
           Profile Setup
         </h1>
-        <p className="mt-2 text-sm text-zinc-500">
+        <p className="mt-2 text-sm text-zinc-400">
           Choose the display name that should represent your account in the app.
         </p>
 
@@ -54,7 +54,7 @@ export default async function ProfileSetupPage({
           <div>
             <label
               htmlFor="displayName"
-              className="block text-sm font-semibold text-zinc-800"
+              className="block text-sm font-semibold text-zinc-200"
             >
               Display name
             </label>
@@ -64,7 +64,7 @@ export default async function ProfileSetupPage({
               type="text"
               required
               maxLength={80}
-              className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
+              className="mt-2 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
               placeholder="Your tasting name"
             />
           </div>
