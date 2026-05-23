@@ -43,8 +43,6 @@ type PourRow = {
   sort_order: number;
 };
 
-const DEFAULT_CODES = ["A", "B", "C", "D"];
-
 function getErrorMessage(error: unknown, fallback = "Unknown error.") {
   if (!error) return fallback;
   if (error instanceof Error && error.message) return error.message;
@@ -121,6 +119,8 @@ export default function HostPoursPage() {
   const [libraryError, setLibraryError] = useState("");
   const [creatingWhiskey, setCreatingWhiskey] = useState(false);
   const [saveHint, setSaveHint] = useState("");
+  const [quickCount, setQuickCount] = useState(4);
+  const [quickBusy, setQuickBusy] = useState(false);
   const saveHintTimer = useRef<number | null>(null);
 
   const hostUrl = useMemo(() => {
@@ -274,21 +274,11 @@ export default function HostPoursPage() {
       }
 
       setSession(sess as SessionRow);
-      let loaded = await loadPours();
-
-      if (loaded.length === 0) {
-        const seedRows = DEFAULT_CODES.map((code, idx) => ({
-          session_id: sessionId,
-          code,
-          bottle_name: null,
-          whiskey_id: null,
-          sort_order: idx + 1,
-        }));
-        loaded = await insertPours(seedRows);
-      }
-
-      setPours(loaded.sort((a, b) => a.sort_order - b.sort_order));
-      setOpenPourId(loaded[0]?.id || null);
+      const loaded = await loadPours();
+      const sorted = loaded.sort((a, b) => a.sort_order - b.sort_order);
+      setPours(sorted);
+      setQuickCount(Math.max(4, sorted.length));
+      setOpenPourId(sorted[0]?.id || null);
       await loadWhiskeys();
       setLoading(false);
     } catch (e: unknown) {
@@ -450,9 +440,53 @@ export default function HostPoursPage() {
       return;
     }
 
-    setPours((prev) => [...prev, newPour].sort((a, b) => a.sort_order - b.sort_order));
+    const next = [...pours, newPour].sort((a, b) => a.sort_order - b.sort_order);
+    setPours(next);
+    setQuickCount(Math.max(quickCount, next.length));
     setOpenPourId(newPour.id);
     showSaved("Added");
+  };
+
+  const bulkAddPours = async (targetCount: number) => {
+    if (!sessionId) return;
+    const toAdd = targetCount - pours.length;
+    if (toAdd <= 0) return;
+
+    setQuickBusy(true);
+    setError("");
+    try {
+      const existingCodes = pours.map((p) => p.code);
+      const newRows: Array<{
+        session_id: string;
+        code: string;
+        bottle_name: null;
+        whiskey_id: null;
+        sort_order: number;
+      }> = [];
+      let nextSortOrder =
+        pours.length > 0 ? Math.max(...pours.map((p) => p.sort_order)) + 1 : 1;
+
+      for (let i = 0; i < toAdd; i++) {
+        const code = nextCode([...existingCodes, ...newRows.map((r) => r.code)]);
+        newRows.push({
+          session_id: sessionId,
+          code,
+          bottle_name: null,
+          whiskey_id: null,
+          sort_order: nextSortOrder++,
+        });
+      }
+
+      const inserted = await insertPours(newRows);
+      const next = [...pours, ...inserted].sort((a, b) => a.sort_order - b.sort_order);
+      setPours(next);
+      setOpenPourId(inserted[0]?.id || openPourId);
+      showSaved(`${toAdd} pour${toAdd > 1 ? "s" : ""} added`);
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Could not add pours."));
+    } finally {
+      setQuickBusy(false);
+    }
   };
 
   const deletePour = async (pourId: string) => {
@@ -519,11 +553,63 @@ export default function HostPoursPage() {
           {saveHint ? <div className="text-xs text-zinc-300">{saveHint}</div> : null}
           {libraryError ? <div className="text-xs text-red-300">{libraryError}</div> : null}
 
+          {/* ── Bottle count quick-setup ───────────────────────────── */}
+          <div className="rounded-2xl border border-amber-500/30 bg-zinc-900 px-4 py-4">
+            <div className="font-semibold text-zinc-100">How many bottles are in this blind?</div>
+            <div className="mt-1 text-xs text-zinc-400">
+              Create a pour slot for each bottle. Tasters score them as Pour A, B, C…
+              You can fill in the actual bottle names any time — they stay hidden until BIG REVEAL.
+            </div>
+
+            <div className="mt-4 flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setQuickCount((n) => Math.max(1, n - 1))}
+                  className="w-9 h-9 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 border border-zinc-700 text-zinc-200 font-bold text-lg flex items-center justify-center"
+                >
+                  −
+                </button>
+                <span className="w-10 text-center text-2xl font-extrabold tabular-nums text-white">
+                  {quickCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setQuickCount((n) => Math.min(26, n + 1))}
+                  className="w-9 h-9 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 border border-zinc-700 text-zinc-200 font-bold text-lg flex items-center justify-center"
+                >
+                  +
+                </button>
+              </div>
+
+              {quickCount > pours.length ? (
+                <button
+                  type="button"
+                  onClick={() => bulkAddPours(quickCount)}
+                  disabled={quickBusy}
+                  className="bg-amber-500 hover:bg-amber-600 active:scale-95 disabled:opacity-60 text-black font-semibold px-5 py-2 rounded-xl text-sm"
+                >
+                  {quickBusy
+                    ? "Adding…"
+                    : pours.length === 0
+                    ? `Set up ${quickCount} pours`
+                    : `Add ${quickCount - pours.length} more pour${quickCount - pours.length > 1 ? "s" : ""}`}
+                </button>
+              ) : (
+                <span className="text-xs text-zinc-500">
+                  {pours.length} pour{pours.length !== 1 ? "s" : ""} ready
+                  {quickCount < pours.length ? " — delete extras below" : ""}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* ── Library search ─────────────────────────────────────── */}
           <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4">
-            <div className="font-semibold text-zinc-100">Shared whiskey library</div>
-            <div className="mt-1 text-xs text-zinc-500">
-              Search the shared library, then open a pour below to assign the match.
-              Create a new whiskey only when the bottle is missing from the library.
+            <div className="font-semibold text-zinc-100">Assign bottles to pours</div>
+            <div className="mt-1 text-xs text-zinc-400">
+              Search the whiskey library and tap a pour below to link it, or just type the bottle name directly.
+              Names stay hidden until BIG REVEAL.
             </div>
             {!libraryUserId ? (
               <div className="mt-2 text-xs text-amber-300">
@@ -539,11 +625,19 @@ export default function HostPoursPage() {
             className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
           />
 
-          <button onClick={addPour} className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl">
-            + Add Pour
+          <button
+            onClick={addPour}
+            className="bg-zinc-800 hover:bg-zinc-700 active:scale-95 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl"
+          >
+            + Add One More Pour
           </button>
 
           <div className="space-y-2">
+            {pours.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-zinc-700 px-4 py-6 text-center text-sm text-zinc-500">
+                No pours yet. Use the bottle counter above to set up your blind.
+              </div>
+            )}
             {pours.map((pour) => {
               const isOpen = openPourId === pour.id;
               return (
@@ -611,18 +705,24 @@ export default function HostPoursPage() {
                       >
                         Clear whiskey selection
                       </button>
-                      <input
-                        value={pour.bottle_name ?? ""}
-                        onChange={(e) => updatePour(pour.id, { bottle_name: e.target.value })}
-                        onBlur={(e) =>
-                          savePour({
-                            ...pour,
-                            bottle_name: e.currentTarget.value,
-                          })
-                        }
-                        placeholder="Reveal bottle name"
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200"
-                      />
+                      <div>
+                        <div className="text-xs text-zinc-400 mb-1.5">
+                          Bottle name{" "}
+                          <span className="text-amber-400/80 font-semibold">— hidden until BIG REVEAL</span>
+                        </div>
+                        <input
+                          value={pour.bottle_name ?? ""}
+                          onChange={(e) => updatePour(pour.id, { bottle_name: e.target.value })}
+                          onBlur={(e) =>
+                            savePour({
+                              ...pour,
+                              bottle_name: e.currentTarget.value,
+                            })
+                          }
+                          placeholder="e.g. Eagle Rare 10 Year"
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={() => deletePour(pour.id)}
