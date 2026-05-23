@@ -201,7 +201,7 @@ export default async function LeaderboardPage() {
       ratingCount: visibleCount,
       averageScore: visibleAverage,
     };
-  }).sort((a, b) => b.averageScore - a.averageScore);
+  }).sort((a, b) => b.ratingCount - a.ratingCount);
 
   return (
     <main className="min-h-screen bg-zinc-900 p-4 text-white sm:p-6">
