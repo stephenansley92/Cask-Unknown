@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { Lock, LockOpen, CheckCircle2 } from "lucide-react";
+import { useWakeLock } from "@/lib/use-wake-lock";
 
 type SessionRow = {
   id: string;
@@ -286,6 +287,8 @@ export default function ScorePage() {
   const isRevealed = status === "revealed";
   const isRevealReady = status === "reveal_ready";
   const revealScoringEnabled = isRevealReady || isRevealed;
+
+  useWakeLock(Boolean(session && participant && !isRevealed));
 
   const activeCoreLocked = useMemo(() => {
     if (!activePourId) return false;

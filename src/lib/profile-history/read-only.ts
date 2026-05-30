@@ -62,6 +62,7 @@ export type HistoryRow = {
   id: string;
   sessionId: string;
   sessionTitle: string;
+  sessionStatus?: string;
   pourLabel: string;
   total: number;
   notes: string;
@@ -413,6 +414,7 @@ export async function loadCanonicalBlindHistory(
       id: score.id,
       sessionId: score.session_id,
       sessionTitle: session?.title || "Unknown Session",
+      sessionStatus: session?.status || "",
       pourLabel,
       total: Number(score.total ?? 0),
       notes: (score.notes || "").trim(),
