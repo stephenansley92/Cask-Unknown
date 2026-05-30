@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 function makeKey(len = 24) {
   const bytes = new Uint8Array(len);
@@ -44,12 +44,31 @@ export default function CreatePage() {
         return;
       }
 
+      const supabase = createSupabaseBrowserClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        setError(userError.message);
+        setBusy(false);
+        return;
+      }
+
+      if (!user) {
+        setBusy(false);
+        router.push("/login?redirectTo=%2Fcreate");
+        return;
+      }
+
       const { data, error: insErr } = await supabase
         .from("sessions")
         .insert([
           {
             title: cleanTitle,
             host_key: hostKey,
+            host_user_id: user.id,
             is_blind: isBlind,
             status: "setup",
           },
@@ -70,8 +89,8 @@ export default function CreatePage() {
       setCreatedId(sessionId);
 
       router.push(`/host/${sessionId}?key=${encodeURIComponent(key)}`);
-    } catch (e: any) {
-      setError(e?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Unknown error.");
       setBusy(false);
     }
   };

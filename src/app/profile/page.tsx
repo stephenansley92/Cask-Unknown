@@ -927,6 +927,50 @@ export default function ProfilePage() {
     return result;
   }, [sortedHistory, sortKey]);
 
+  const blindSessionGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        sessionId: string;
+        title: string;
+        status: string;
+        rows: HistoryRow[];
+        latestAt: string;
+        average: number;
+      }
+    >();
+
+    for (const row of history) {
+      const existing = groups.get(row.sessionId);
+      const latestAt =
+        !existing || new Date(row.createdAt).getTime() > new Date(existing.latestAt).getTime()
+          ? row.createdAt
+          : existing.latestAt;
+
+      if (!existing) {
+        groups.set(row.sessionId, {
+          sessionId: row.sessionId,
+          title: row.sessionTitle,
+          status: row.sessionStatus || "",
+          rows: [row],
+          latestAt,
+          average: row.total,
+        });
+      } else {
+        existing.rows.push(row);
+        existing.latestAt = latestAt;
+        existing.average =
+          existing.rows.reduce((sum, entry) => sum + entry.total, 0) / existing.rows.length;
+      }
+    }
+
+    return [...groups.values()].sort((a, b) => {
+      const bTime = new Date(b.latestAt).getTime();
+      const aTime = new Date(a.latestAt).getTime();
+      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+    });
+  }, [history]);
+
   if (loading || (!profileResolved && !error)) {
     return (
       <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
@@ -1074,6 +1118,77 @@ export default function ProfilePage() {
                 <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
                   <div className="text-xs text-zinc-500">Sessions</div>
                   <div className="text-2xl font-extrabold tabular-nums">{sessionCount}</div>
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm text-zinc-500">Blind Sessions</div>
+                    <div className="mt-1 text-lg font-semibold text-zinc-900">
+                      Sessions you participated in
+                    </div>
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {blindSessionGroups.length} session{blindSessionGroups.length === 1 ? "" : "s"}
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {blindSessionGroups.length ? (
+                    blindSessionGroups.map((group) => {
+                      const revealed = group.status.toLowerCase() === "revealed";
+
+                      return (
+                        <div
+                          key={group.sessionId}
+                          className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4"
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="font-semibold text-zinc-900">{group.title}</div>
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {group.rows.length} scored pour{group.rows.length === 1 ? "" : "s"} - Last scored{" "}
+                                {formatDate(group.latestAt)}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
+                                  Avg {group.average.toFixed(1)}
+                                </span>
+                                <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
+                                  {group.status || "unknown"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                              <Link
+                                href={`/reveal/${group.sessionId}`}
+                                className={[
+                                  "inline-flex items-center justify-center rounded-xl px-4 py-2 text-xs font-semibold",
+                                  revealed
+                                    ? "border border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200"
+                                    : "border border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50",
+                                ].join(" ")}
+                              >
+                                {revealed ? "View Results" : "Reveal Link"}
+                              </Link>
+                              <Link
+                                href={`/join/${group.sessionId}`}
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              >
+                                Reopen Scoring
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4 text-sm text-zinc-500">
+                      Join a blind tasting while signed in and it will show up here.
+                    </div>
+                  )}
                 </div>
               </div>
 

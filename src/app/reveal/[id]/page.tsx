@@ -4,14 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ConnectionBanner } from "@/components/connection-banner";
-import { Trophy, Star, ChevronLeft, ChevronRight, SkipForward, RefreshCw } from "lucide-react";
+import { Trophy, ChevronLeft, ChevronRight, SkipForward, RefreshCw, Download, Share2 } from "lucide-react";
 import confetti from "canvas-confetti";
+import { useWakeLock } from "@/lib/use-wake-lock";
 
 type SessionRow = {
   id: string;
   title: string;
   is_blind: boolean;
   status: string;
+  created_at?: string | null;
 };
 
 type PourRow = {
@@ -60,6 +62,8 @@ const CATEGORY = [
   { key: "packaging", label: "Packaging", max: 5 },
   { key: "value", label: "Value", max: 5 },
 ] as const;
+
+type CategoryKey = (typeof CATEGORY)[number]["key"];
 
 function avg(nums: number[]) {
   if (!nums.length) return 0;
@@ -222,6 +226,42 @@ function formatRankLabel(rank: RankMeta | null | undefined) {
   return rank.tied ? `Tied for ${formatOrdinal(rank.rank)}` : formatOrdinal(rank.rank);
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return "Unknown date";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function sanitizeFilename(value: string) {
+  const clean = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return clean || "cask-unknown-results";
+}
+
+function standardDeviation(values: number[]) {
+  if (values.length < 2) return 0;
+  const mean = avg(values);
+  const variance = avg(values.map((value) => (value - mean) ** 2));
+  return Math.sqrt(variance);
+}
+
+function getScoreCategory(score: ScoreRow, key: CategoryKey) {
+  return clamp01(Number(score[key] ?? 0));
+}
+
 export default function RevealPage() {
   const params = useParams<{ id: string }>();
   const sessionId = params?.id;
@@ -233,6 +273,8 @@ export default function RevealPage() {
   const [scores, setScores] = useState<ScoreRow[]>([]);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [currentParticipantId, setCurrentParticipantId] = useState("");
+  const [shareHint, setShareHint] = useState("");
   const prevStepRef = useRef<number>(-1);
 
   // Cinematic mode: step through from LAST → FIRST, then final screen
@@ -241,7 +283,7 @@ export default function RevealPage() {
   const loadAll = async (id: string) => {
     const { data: sess, error: sessErr } = await supabase
       .from("sessions")
-      .select("id,title,is_blind,status")
+      .select("id,title,is_blind,status,created_at")
       .eq("id", id)
       .single();
     if (sessErr) throw sessErr;
@@ -288,13 +330,25 @@ export default function RevealPage() {
 
         await loadAll(sessionId);
         setLoading(false);
-      } catch (e: any) {
-        setError(e?.message || "Unknown error.");
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Unknown error.");
         setLoading(false);
       }
     };
 
     run();
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || typeof window === "undefined") return;
+
+    try {
+      const raw = window.localStorage.getItem(`cask_unknown_participant_${sessionId}`);
+      const parsed = JSON.parse(raw || "null") as { participantId?: string } | null;
+      setCurrentParticipantId(parsed?.participantId || "");
+    } catch {
+      setCurrentParticipantId("");
+    }
   }, [sessionId]);
 
   // ✅ realtime subscriptions (TV updates instantly)
@@ -306,8 +360,8 @@ export default function RevealPage() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sessionId}` },
-        (payload: any) => {
-          const newStatus = (payload?.new?.status || "") as string;
+        (payload: { new?: { status?: string | null } }) => {
+          const newStatus = payload.new?.status || "";
           setSession((prev) => (prev ? { ...prev, status: newStatus } : prev));
         }
       )
@@ -357,6 +411,8 @@ export default function RevealPage() {
   const isRevealed = status === "revealed";
   const isRevealReady = status === "reveal_ready";
 
+  useWakeLock(Boolean(session));
+
   const displayPourName = (p: PourRow) => {
     // Before BIG REVEAL, keep it anonymous (even during reveal_ready)
     if (!session?.is_blind) return p.bottle_name || `Pour ${p.code}`;
@@ -381,7 +437,7 @@ export default function RevealPage() {
       byPour[p.id].avgTotal = avg(s.map((x) => clamp01(Number(x.total ?? 0))));
 
       for (const c of CATEGORY) {
-        byPour[p.id].avgByCat[c.key] = avg(s.map((x: any) => clamp01(Number(x[c.key] ?? 0))));
+        byPour[p.id].avgByCat[c.key] = avg(s.map((score) => getScoreCategory(score, c.key)));
       }
     }
 
@@ -440,7 +496,7 @@ export default function RevealPage() {
         if (!p) continue;
 
         const byCat: Record<string, number> = {};
-        for (const c of CATEGORY) byCat[c.key] = clamp01(Number((s as any)[c.key] ?? 0));
+        for (const c of CATEGORY) byCat[c.key] = getScoreCategory(s, c.key);
         rows.push({ pour: p, total: clamp01(Number(s.total ?? 0)), byCat });
       }
 
@@ -487,6 +543,82 @@ export default function RevealPage() {
 
     return out;
   }, [participants, perUserRankings]);
+
+  const scoreSpreadByPour = useMemo(() => {
+    const out: Record<string, { pour: PourRow; spread: number; scores: number[] }> = {};
+
+    for (const pour of pours) {
+      const totals = scores
+        .filter((score) => score.pour_id === pour.id)
+        .map((score) => clamp01(Number(score.total ?? 0)));
+
+      out[pour.id] = {
+        pour,
+        spread: standardDeviation(totals),
+        scores: totals,
+      };
+    }
+
+    return out;
+  }, [pours, scores]);
+
+  const mostDivisivePour = useMemo(() => {
+    return Object.values(scoreSpreadByPour)
+      .filter((row) => row.scores.length > 1)
+      .sort((a, b) => b.spread - a.spread)[0] || null;
+  }, [scoreSpreadByPour]);
+
+  const currentParticipant = useMemo(
+    () => participants.find((participant) => participant.id === currentParticipantId) || null,
+    [currentParticipantId, participants]
+  );
+
+  const personalRecap = useMemo(() => {
+    if (!currentParticipant) return null;
+
+    const userStats = perUserRankings[currentParticipant.id];
+    const ranking = userStats?.ranking || [];
+    if (!ranking.length) return null;
+
+    const statsByPourId = new Map(pourStats.map((stats) => [stats.pour.id, stats]));
+    const userRankByPourId = perUserRankMeta[currentParticipant.id] || {};
+    const top = ranking[0];
+
+    const higherThanGroup = ranking
+      .map((row) => {
+        const groupAverage = statsByPourId.get(row.pour.id)?.avgTotal ?? 0;
+        return {
+          pour: row.pour,
+          userTotal: row.total,
+          groupAverage,
+          delta: row.total - groupAverage,
+        };
+      })
+      .sort((a, b) => b.delta - a.delta)[0] || null;
+
+    const biggestSurprise = ranking
+      .map((row) => {
+        const userRank = userRankByPourId[row.pour.id];
+        const groupRank = pourRankMeta[row.pour.id];
+
+        return {
+          pour: row.pour,
+          userRank,
+          groupRank,
+          gap: Math.abs((userRank?.rank || 0) - (groupRank?.rank || 0)),
+        };
+      })
+      .filter((row) => row.userRank && row.groupRank)
+      .sort((a, b) => b.gap - a.gap)[0] || null;
+
+    return {
+      participant: currentParticipant,
+      top,
+      topGroupRank: pourRankMeta[top.pour.id] || null,
+      higherThanGroup,
+      biggestSurprise,
+    };
+  }, [currentParticipant, perUserRankings, perUserRankMeta, pourRankMeta, pourStats]);
 
   // Cinematic ordering: LAST → FIRST (reverse of pourStats)
   const cinematicList = useMemo(() => {
@@ -605,11 +737,138 @@ export default function RevealPage() {
     try {
       setRefreshing(true);
       await loadAll(sessionId);
-    } catch (e: any) {
-      console.warn("Manual refresh failed:", e?.message);
+    } catch (e: unknown) {
+      console.warn("Manual refresh failed:", e instanceof Error ? e.message : e);
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const buildResultText = () => {
+    return [
+      `${title} - Final Results`,
+      "",
+      `Winner: ${overallWinner ? displayPourName(overallWinner.pour) : "No winner yet"}`,
+      `Tasters: ${participants.length}`,
+      `Date: ${formatDate(session?.created_at)}`,
+      "",
+      "Overall Ranking:",
+      ...pourStats.map((ps, index) => {
+        const rank = pourRankMeta[ps.pour.id];
+        return `${formatRankLabel(rank || { rank: index + 1, tied: false, size: 1 })}: ${displayPourName(
+          ps.pour
+        )} - ${ps.avgTotal.toFixed(1)}/100`;
+      }),
+      "",
+      "Category Winners:",
+      ...categoryWinners.map(
+        (winner) =>
+          `Best ${winner.label}: ${winner.pour ? displayPourName(winner.pour) : "-"} (${winner.value.toFixed(
+            1
+          )}/${winner.max})`
+      ),
+    ].join("\n");
+  };
+
+  const showShareHint = (message: string) => {
+    setShareHint(message);
+    window.setTimeout(() => setShareHint(""), 2200);
+  };
+
+  const copyResults = async () => {
+    try {
+      await navigator.clipboard.writeText(buildResultText());
+      showShareHint("Results copied.");
+    } catch {
+      showShareHint("Could not copy results.");
+    }
+  };
+
+  const shareResults = async () => {
+    const text = buildResultText();
+    const url = typeof window !== "undefined" ? window.location.href : "";
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${title} Results`, text, url });
+        return;
+      }
+
+      await navigator.clipboard.writeText(`${text}\n\n${url}`);
+      showShareHint("Results copied.");
+    } catch {
+      showShareHint("Share cancelled.");
+    }
+  };
+
+  const downloadRecapCard = () => {
+    const topRows = pourStats.slice(0, 5);
+    const categoryRows = categoryWinners.slice(0, 5);
+    const safeTitle = escapeXml(title);
+    const winnerName = escapeXml(overallWinner ? displayPourName(overallWinner.pour) : "No winner yet");
+    const date = escapeXml(formatDate(session?.created_at));
+
+    const rankingSvg = topRows
+      .map((row, index) => {
+        const y = 360 + index * 54;
+        const rank = pourRankMeta[row.pour.id];
+        return `
+          <text x="84" y="${y}" fill="#a1a1aa" font-size="24" font-weight="700">${escapeXml(
+            formatRankLabel(rank || { rank: index + 1, tied: false, size: 1 })
+          )}</text>
+          <text x="220" y="${y}" fill="#ffffff" font-size="26" font-weight="800">${escapeXml(
+            displayPourName(row.pour)
+          )}</text>
+          <text x="1010" y="${y}" fill="#f59e0b" font-size="26" font-weight="900" text-anchor="end">${row.avgTotal.toFixed(
+            1
+          )}</text>`;
+      })
+      .join("");
+
+    const categorySvg = categoryRows
+      .map((row, index) => {
+        const y = 680 + index * 42;
+        return `
+          <text x="84" y="${y}" fill="#a1a1aa" font-size="21" font-weight="700">Best ${escapeXml(
+            row.label
+          )}</text>
+          <text x="300" y="${y}" fill="#ffffff" font-size="21" font-weight="800">${escapeXml(
+            row.pour ? displayPourName(row.pour) : "-"
+          )}</text>
+          <text x="1010" y="${y}" fill="#d4d4d8" font-size="21" font-weight="700" text-anchor="end">${row.value.toFixed(
+            1
+          )}/${row.max}</text>`;
+      })
+      .join("");
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+      <rect width="1080" height="1080" fill="#09090b"/>
+      <rect x="48" y="48" width="984" height="984" rx="36" fill="#18181b" stroke="#3f3f46" stroke-width="2"/>
+      <text x="84" y="124" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="4">CASK UNKNOWN</text>
+      <text x="84" y="184" fill="#ffffff" font-family="Arial, sans-serif" font-size="48" font-weight="900">${safeTitle}</text>
+      <text x="84" y="236" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="24">${date} • ${participants.length} tasters • ${pours.length} pours</text>
+      <rect x="84" y="274" width="912" height="86" rx="24" fill="#0f0f12" stroke="#3f3f46"/>
+      <text x="116" y="326" fill="#f59e0b" font-family="Arial, sans-serif" font-size="26" font-weight="800">Winner</text>
+      <text x="260" y="326" fill="#ffffff" font-family="Arial, sans-serif" font-size="32" font-weight="900">${winnerName}</text>
+      <text x="84" y="310" fill="#ffffff" font-family="Arial, sans-serif" font-size="1"></text>
+      <text x="84" y="322" fill="#ffffff" font-family="Arial, sans-serif" font-size="1"></text>
+      <g font-family="Arial, sans-serif">${rankingSvg}</g>
+      <line x1="84" y1="628" x2="996" y2="628" stroke="#3f3f46"/>
+      <text x="84" y="650" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="22" font-weight="800">CATEGORY WINNERS</text>
+      <g font-family="Arial, sans-serif">${categorySvg}</g>
+      <text x="84" y="972" fill="#71717a" font-family="Arial, sans-serif" font-size="22">Shareable recap generated by Cask Unknown</text>
+    </svg>`;
+
+    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${sanitizeFilename(title)}-recap.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    showShareHint("Recap card downloaded.");
   };
 
   // ---------- UI states ----------
@@ -668,6 +927,11 @@ export default function RevealPage() {
     return (
       <main className="min-h-screen bg-black text-white p-6">
         <ConnectionBanner />
+        {shareHint ? (
+          <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-100 shadow-lg">
+            {shareHint}
+          </div>
+        ) : null}
         <div className="max-w-6xl mx-auto">
           <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 shadow-xl">
             <div className="flex items-start justify-between gap-4">
@@ -693,6 +957,59 @@ export default function RevealPage() {
               >
                 Copy Results
               </button>
+            </div>
+
+            <div className="mt-6 rounded-3xl border border-amber-500/30 bg-amber-500/10 p-6">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:justify-between">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">
+                    Shareable Recap
+                  </div>
+                  <div className="mt-2 text-2xl font-extrabold text-white">
+                    {overallWinner ? displayPourName(overallWinner.pour) : "Results are still forming"}
+                  </div>
+                  <div className="mt-2 text-sm text-zinc-300">
+                    {formatDate(session.created_at)} - {participants.length} tasters - {pours.length} pours
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {pourStats.slice(0, 3).map((row, index) => (
+                      <div
+                        key={`recap-${row.pour.id}`}
+                        className="rounded-2xl border border-zinc-800 bg-black/30 px-4 py-3"
+                      >
+                        <div className="text-xs text-zinc-500">#{index + 1}</div>
+                        <div className="mt-1 truncate text-sm font-semibold text-zinc-100">
+                          {displayPourName(row.pour)}
+                        </div>
+                        <div className="mt-1 text-lg font-extrabold tabular-nums text-amber-300">
+                          {row.avgTotal.toFixed(1)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 flex-col justify-end gap-2 sm:flex-row lg:flex-col">
+                  <button
+                    onClick={downloadRecapCard}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-3 text-sm font-extrabold text-black hover:bg-amber-600"
+                  >
+                    <Download className="h-4 w-4" /> Download Card
+                  </button>
+                  <button
+                    onClick={shareResults}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+                  >
+                    <Share2 className="h-4 w-4" /> Share Results
+                  </button>
+                  <button
+                    onClick={copyResults}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+                  >
+                    Copy Full Recap
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -766,6 +1083,71 @@ export default function RevealPage() {
                   );
                 })}
                 {pourStats.length === 0 && <div className="text-zinc-400">No pours/scores yet.</div>}
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="rounded-3xl border border-zinc-800 bg-black/40 p-6 lg:col-span-2">
+                <div className="text-sm text-zinc-400">Your Post-Reveal Recap</div>
+                {personalRecap ? (
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div className="rounded-2xl border border-zinc-900 bg-black/30 px-4 py-4">
+                      <div className="text-xs text-zinc-500">Your #1</div>
+                      <div className="mt-1 font-extrabold text-zinc-100">
+                        {displayPourName(personalRecap.top.pour)}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Group had it {formatRankLabel(personalRecap.topGroupRank)}.
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-900 bg-black/30 px-4 py-4">
+                      <div className="text-xs text-zinc-500">You Liked More Than The Group</div>
+                      <div className="mt-1 font-extrabold text-zinc-100">
+                        {personalRecap.higherThanGroup
+                          ? displayPourName(personalRecap.higherThanGroup.pour)
+                          : "-"}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {personalRecap.higherThanGroup
+                          ? `${personalRecap.higherThanGroup.delta >= 0 ? "+" : ""}${personalRecap.higherThanGroup.delta.toFixed(
+                              1
+                            )} vs group avg`
+                          : "No scores to compare yet."}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-900 bg-black/30 px-4 py-4">
+                      <div className="text-xs text-zinc-500">Biggest Surprise</div>
+                      <div className="mt-1 font-extrabold text-zinc-100">
+                        {personalRecap.biggestSurprise
+                          ? displayPourName(personalRecap.biggestSurprise.pour)
+                          : "-"}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {personalRecap.biggestSurprise
+                          ? `You: ${formatRankLabel(
+                              personalRecap.biggestSurprise.userRank
+                            )}; group: ${formatRankLabel(personalRecap.biggestSurprise.groupRank)}.`
+                          : "No ranking split yet."}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-zinc-900 bg-black/30 px-4 py-4 text-sm text-zinc-500">
+                    Open this results link from the phone you used to score to see your personal recap.
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-3xl border border-zinc-800 bg-black/40 p-6">
+                <div className="text-sm text-zinc-400">Most Divisive Pour</div>
+                <div className="mt-3 text-2xl font-extrabold">
+                  {mostDivisivePour ? displayPourName(mostDivisivePour.pour) : "-"}
+                </div>
+                <div className="mt-2 text-sm text-zinc-500">
+                  {mostDivisivePour
+                    ? `Score spread ${mostDivisivePour.spread.toFixed(1)} across ${mostDivisivePour.scores.length} tasters.`
+                    : "Need at least two scorecards for a spread."}
+                </div>
               </div>
             </div>
 
