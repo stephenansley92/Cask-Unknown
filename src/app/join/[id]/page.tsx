@@ -67,16 +67,12 @@ export default function JoinPage() {
         setProfileOptions(getProfileOptions());
 
         const authClient = createSupabaseBrowserClient();
-        const {
-          data: { user },
-          error: userError,
-        } = await authClient.auth.getUser();
-
-        if (userError) {
-          setError(userError.message);
-          setLoading(false);
-          return;
-        }
+        // Guests join without logging in. getUser() returns an
+        // AuthSessionMissingError when there's no session — that's expected
+        // for guests, so treat it as "no logged-in user" rather than a fatal
+        // error. Only a logged-in user enforces a locked profile name.
+        const { data: userData } = await authClient.auth.getUser();
+        const user = userData?.user ?? null;
 
         const ownerMatch =
           (user?.email || "").trim().toLowerCase() === OWNER_EMAIL;
