@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ConfirmModal } from "@/components/confirm-modal";
 
 type SessionRow = {
@@ -28,6 +28,11 @@ export default function HostTastersPage() {
 
   const sessionId = params?.id;
   const hostKey = searchParams.get("key") || "";
+
+  // Host deletes (scores/participants) are restricted to authenticated users by
+  // RLS, so use the cookie-based auth client. Reads are public so it covers both;
+  // the plain anon client would be silently rejected on deletes.
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<SessionRow | null>(null);

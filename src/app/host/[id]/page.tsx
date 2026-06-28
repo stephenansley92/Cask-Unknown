@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { QRCodeCanvas } from "qrcode.react";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
@@ -260,10 +261,27 @@ export default function HostPage() {
     try {
       setBusy(true);
 
-      const { error } = await supabase.from("sessions").update({ status: newStatus }).eq("id", sessionId);
+      // Session updates are restricted to authenticated users by RLS, so use
+      // the cookie-based auth client (the host signed in to create the session).
+      // The plain anon client would be silently rejected (0 rows updated).
+      const dbClient = createSupabaseBrowserClient();
+      const { data: updated, error } = await dbClient
+        .from("sessions")
+        .update({ status: newStatus })
+        .eq("id", sessionId)
+        .select("id")
+        .maybeSingle();
 
       if (error) {
         setError(error.message);
+        setBusy(false);
+        return;
+      }
+
+      if (!updated) {
+        setError(
+          "Couldn't change status. Make sure you're signed in as the host account that created this session, then try again."
+        );
         setBusy(false);
         return;
       }
