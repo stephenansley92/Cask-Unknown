@@ -72,6 +72,10 @@ function storageKey(sessionId: string) {
   return `cask_unknown_participant_${sessionId}`;
 }
 
+function activePourStorageKey(sessionId: string, participantId: string) {
+  return `cask_unknown_active_pour_${sessionId}_${participantId}`;
+}
+
 // 0 allowed everywhere
 const CATEGORY_SPEC = [
   {
@@ -249,6 +253,8 @@ export default function ScorePage() {
   const scrollLockTimer = useRef<number | null>(null);
   const activeSliderTouch = useRef<SliderTouchState | null>(null);
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
+  const coreLockedByPourRef = useRef<Record<string, boolean>>({});
+  const finalLockedByPourRef = useRef<Record<string, boolean>>({});
 
   const joinUrl = useMemo(() => (sessionId ? `/join/${sessionId}` : "/"), [sessionId]);
 
@@ -268,6 +274,14 @@ export default function ScorePage() {
     () => pours.find((p) => p.id === activePourId) || null,
     [pours, activePourId]
   );
+
+  const activePourIndex = useMemo(
+    () => pours.findIndex((p) => p.id === activePourId),
+    [pours, activePourId]
+  );
+
+  const canGoPrev = activePourIndex > 0;
+  const canGoNext = activePourIndex >= 0 && activePourIndex < pours.length - 1;
 
   const activeDraft: ScoreDraft = useMemo(() => {
     if (!activePourId) return makeEmptyDraft();
@@ -301,6 +315,14 @@ export default function ScorePage() {
     if (isRevealed) return true;
     return finalLockedByPour[activePourId] ?? false;
   }, [activePourId, finalLockedByPour, isRevealed]);
+
+  useEffect(() => {
+    coreLockedByPourRef.current = coreLockedByPour;
+  }, [coreLockedByPour]);
+
+  useEffect(() => {
+    finalLockedByPourRef.current = finalLockedByPour;
+  }, [finalLockedByPour]);
 
   const completedCount = useMemo(() => {
     return pours.reduce((count, p) => {
@@ -346,6 +368,55 @@ export default function ScorePage() {
     });
   };
 
+  const applyScoreRow = (row: ScoreRow) => {
+    setScoreIdByPour((prev) => ({ ...prev, [row.pour_id]: row.id }));
+    setDraftForPour(row.pour_id, {
+      nose: row.nose ?? 0,
+      flavor: row.flavor ?? 0,
+      mouthfeel: row.mouthfeel ?? 0,
+      complexity: row.complexity ?? 0,
+      balance: row.balance ?? 0,
+      finish: row.finish ?? 0,
+      uniqueness: row.uniqueness ?? 0,
+      drinkability: row.drinkability ?? 0,
+      packaging: row.packaging ?? 0,
+      value: row.value ?? 0,
+      notes: (row.notes ?? "") as string,
+    });
+    setCoreLockedByPour((prev) => ({ ...prev, [row.pour_id]: !!row.core_locked }));
+    setFinalLockedByPour((prev) => ({ ...prev, [row.pour_id]: !!row.final_locked }));
+  };
+
+  const loadScoresForParticipant = async (participantId: string, poursList: PourRow[]) => {
+    const pourIds = poursList.map((p) => p.id);
+    if (!pourIds.length) return;
+
+    const { data, error: sErr } = await supabase
+      .from("scores")
+      .select(
+        "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes,core_locked,core_locked_at,final_locked,final_locked_at,created_at"
+      )
+      .eq("participant_id", participantId)
+      .in("pour_id", pourIds);
+
+    if (sErr) throw sErr;
+
+    const rows = (data || []) as ScoreRow[];
+    const rowByPour = new Map(rows.map((row) => [row.pour_id, row]));
+
+    poursList.forEach((pour) => {
+      const row = rowByPour.get(pour.id);
+      if (row) {
+        applyScoreRow(row);
+        return;
+      }
+
+      setDraftForPour(pour.id, makeEmptyDraft());
+      setCoreLockedByPour((prev) => ({ ...prev, [pour.id]: false }));
+      setFinalLockedByPour((prev) => ({ ...prev, [pour.id]: false }));
+    });
+  };
+
   const loadScoreForPour = async (pourId: string, participantId: string) => {
     const { data, error: sErr } = await supabase
       .from("scores")
@@ -361,23 +432,7 @@ export default function ScorePage() {
     }
 
     if (data) {
-      const row = data as ScoreRow;
-      setScoreIdByPour((prev) => ({ ...prev, [pourId]: row.id }));
-      setDraftForPour(pourId, {
-        nose: row.nose ?? 0,
-        flavor: row.flavor ?? 0,
-        mouthfeel: row.mouthfeel ?? 0,
-        complexity: row.complexity ?? 0,
-        balance: row.balance ?? 0,
-        finish: row.finish ?? 0,
-        uniqueness: row.uniqueness ?? 0,
-        drinkability: row.drinkability ?? 0,
-        packaging: row.packaging ?? 0,
-        value: row.value ?? 0,
-        notes: (row.notes ?? "") as string,
-      });
-      setCoreLockedByPour((prev) => ({ ...prev, [pourId]: !!row.core_locked }));
-      setFinalLockedByPour((prev) => ({ ...prev, [pourId]: !!row.final_locked }));
+      applyScoreRow(data as ScoreRow);
     } else {
       setDraftForPour(pourId, makeEmptyDraft());
       setCoreLockedByPour((prev) => ({ ...prev, [pourId]: false }));
@@ -391,9 +446,6 @@ export default function ScorePage() {
   ) => {
     if (!sessionId || !participant) return;
     const d = (draftByPour[pourId] ?? makeEmptyDraft()) as ScoreDraft;
-
-    const core_locked = extra?.lockCore ? true : (coreLockedByPour[pourId] ?? false);
-    const final_locked = extra?.lockFinal ? true : (finalLockedByPour[pourId] ?? false);
 
     const payload: any = {
       session_id: sessionId,
@@ -413,22 +465,54 @@ export default function ScorePage() {
 
       total: computeTotal(d),
       notes: d.notes ?? "",
-
-      core_locked,
-      core_locked_at: extra?.lockCore ? new Date().toISOString() : null,
-
-      final_locked,
-      final_locked_at: extra?.lockFinal ? new Date().toISOString() : null,
+      ...(extra?.lockCore ? { core_locked_at: new Date().toISOString() } : {}),
+      ...(extra?.lockFinal ? { final_locked_at: new Date().toISOString() } : {}),
     };
+
+    if (extra?.lockCore) {
+      payload.core_locked = true;
+    }
+
+    if (extra?.lockFinal) {
+      payload.final_locked = true;
+      if (coreLockedByPourRef.current[pourId]) {
+        payload.core_locked = true;
+      }
+    }
 
     showHint(extra?.lockFinal ? "Locking final…" : extra?.lockCore ? "Locking…" : "Saving…");
     setSaveError("");
 
-    const { data, error: uErr } = await supabase
-      .from("scores")
-      .upsert(payload, { onConflict: "pour_id,participant_id" })
-      .select("id")
-      .single();
+    let data: { id: string } | null = null;
+    let uErr: { message: string } | null = null;
+
+    if (extra?.lockCore || extra?.lockFinal) {
+      const result = await supabase
+        .from("scores")
+        .upsert(payload, { onConflict: "pour_id,participant_id" })
+        .select("id")
+        .single();
+      data = result.data as { id: string } | null;
+      uErr = result.error;
+    } else {
+      const updateResult = await supabase
+        .from("scores")
+        .update(payload)
+        .eq("pour_id", pourId)
+        .eq("participant_id", participant.id)
+        .select("id")
+        .maybeSingle();
+
+      if (updateResult.error) {
+        uErr = updateResult.error;
+      } else if (updateResult.data) {
+        data = updateResult.data as { id: string };
+      } else {
+        const insertResult = await supabase.from("scores").insert(payload).select("id").single();
+        data = insertResult.data as { id: string } | null;
+        uErr = insertResult.error;
+      }
+    }
 
     if (uErr) {
       setSaveError(uErr.message);
@@ -539,12 +623,17 @@ export default function ScorePage() {
         const participantRow = p as ParticipantRow;
         setParticipant(participantRow);
 
-        const firstPourId = poursList[0]?.id || null;
-        setActivePourId(firstPourId);
+        await loadScoresForParticipant(participantRow.id, poursList);
 
-        if (firstPourId) {
-          await loadScoreForPour(firstPourId, participantRow.id);
-        }
+        const savedPourId =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem(activePourStorageKey(sessionId, participantRow.id))
+            : null;
+        const initialPourId =
+          savedPourId && poursList.some((pour) => pour.id === savedPourId)
+            ? savedPourId
+            : poursList[0]?.id || null;
+        setActivePourId(initialPourId);
 
         setLoading(false);
       } catch (e: any) {
@@ -566,10 +655,6 @@ export default function ScorePage() {
     const handleScroll = () => {
       setIsScrollLocked(true);
       activeSliderTouch.current = null;
-
-      if (notesRef.current && document.activeElement === notesRef.current) {
-        notesRef.current.blur();
-      }
 
       clearScrollLock();
     };
@@ -639,6 +724,9 @@ export default function ScorePage() {
   const switchPour = async (pourId: string) => {
     if (!participant) return;
     setActivePourId(pourId);
+    if (sessionId) {
+      window.localStorage.setItem(activePourStorageKey(sessionId, participant.id), pourId);
+    }
     if (draftByPour[pourId]) return;
 
     try {
@@ -652,6 +740,17 @@ export default function ScorePage() {
     if (!activePourId) return;
 
     const spec = CATEGORY_SPEC.find((c) => c.key === key);
+    if (!spec) return;
+
+    if (
+      activeFinalLocked ||
+      isScrollLocked ||
+      (spec.group === "core" && activeCoreLocked) ||
+      (spec.group === "reveal" && !revealScoringEnabled)
+    ) {
+      return;
+    }
+
     const v = spec ? clamp(value, spec.min, spec.max) : value;
 
     setDraftForPour(activePourId, { [key]: v } as any);
@@ -807,8 +906,23 @@ export default function ScorePage() {
   const handleLockConfirm = async () => {
     if (!confirmLock || !activePourId) return;
     const kind = confirmLock.kind;
+    const pourId = activePourId;
     setConfirmLock(null);
-    await upsertPour(activePourId, kind === "core" ? { lockCore: true } : { lockFinal: true });
+
+    if (saveDebounceTimer.current) {
+      window.clearTimeout(saveDebounceTimer.current);
+      saveDebounceTimer.current = null;
+    }
+
+    if (kind === "core") {
+      coreLockedByPourRef.current = { ...coreLockedByPourRef.current, [pourId]: true };
+      setCoreLockedByPour((prev) => ({ ...prev, [pourId]: true }));
+    } else {
+      finalLockedByPourRef.current = { ...finalLockedByPourRef.current, [pourId]: true };
+      setFinalLockedByPour((prev) => ({ ...prev, [pourId]: true }));
+    }
+
+    await upsertPour(pourId, kind === "core" ? { lockCore: true } : { lockFinal: true });
   };
 
   if (loading) {
@@ -846,7 +960,7 @@ export default function ScorePage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6">
+    <main className="min-h-screen bg-zinc-900 text-white px-4 pb-4 pt-20 sm:p-6">
       <ConnectionBanner />
       <ConfirmModal
         open={!!confirmLock}
@@ -857,6 +971,20 @@ export default function ScorePage() {
         onConfirm={handleLockConfirm}
         onCancel={() => setConfirmLock(null)}
       />
+      <div
+        className="pointer-events-none fixed right-3 top-3 z-[60] min-w-[104px] rounded-2xl border border-amber-500/50 bg-zinc-950/95 px-3 py-2 text-right shadow-lg shadow-black/30 backdrop-blur sm:right-4 sm:top-4"
+        style={{
+          top: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
+          right: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
+        }}
+        aria-live="polite"
+      >
+        <div className="text-[10px] font-semibold uppercase tracking-normal text-amber-400">Score</div>
+        <div key={totalKey} className="text-2xl font-extrabold tabular-nums leading-none animate-score-pop">
+          {total}
+          <span className="text-sm text-zinc-400 font-semibold">/100</span>
+        </div>
+      </div>
       <div className="max-w-md mx-auto">
         {saveError ? (
           <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-semibold flex items-center justify-between gap-3">
@@ -908,10 +1036,6 @@ export default function ScorePage() {
               ) : (
                 <div className="text-xs text-transparent">Saved ✓</div>
               )}
-              <div key={totalKey} className="text-2xl font-extrabold tabular-nums animate-score-pop">
-                {total}
-                <span className="text-sm text-zinc-400 font-semibold">/100</span>
-              </div>
               {hostDashboardUrl && (
                 <button
                   onClick={() => router.push(hostDashboardUrl)}
@@ -945,7 +1069,13 @@ export default function ScorePage() {
                     onClick={() => switchPour(p.id)}
                     className={[
                       "shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 transition-colors",
-                      isActive
+                      lockedFinal
+                        ? "border-emerald-500 bg-emerald-500 text-zinc-950"
+                        : lockedCore && isActive
+                        ? "border-emerald-500 bg-zinc-900 text-white"
+                        : lockedCore
+                        ? "border-emerald-500 bg-zinc-700 text-zinc-100"
+                        : isActive
                         ? "border-zinc-900 bg-zinc-900 text-white"
                         : "border-zinc-700 bg-zinc-700 text-zinc-100",
                       flashedPour === p.id ? "animate-lock-flash" : "",
@@ -954,7 +1084,11 @@ export default function ScorePage() {
                     <div
                       className={[
                         "w-8 h-8 rounded-full flex items-center justify-center font-bold",
-                        isActive
+                        lockedFinal
+                          ? "bg-zinc-950/20 border border-zinc-950/30 text-zinc-950"
+                          : lockedCore
+                          ? "bg-emerald-500/15 border border-emerald-400 text-white"
+                          : isActive
                           ? "bg-white/10 border border-white/15"
                           : "bg-zinc-900 border border-zinc-600",
                       ].join(" ")}
@@ -964,10 +1098,10 @@ export default function ScorePage() {
                     <div
                       className={[
                         "text-xs",
-                        isActive
+                        lockedFinal
+                          ? "text-zinc-950"
+                          : isActive
                           ? "text-white/80"
-                          : lockedFinal
-                          ? "text-amber-600"
                           : lockedCore
                           ? "text-emerald-600"
                           : "text-zinc-500",
@@ -1002,13 +1136,25 @@ export default function ScorePage() {
             <div className="flex gap-2">
               <button
                 onClick={goPrevPour}
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold hover:bg-zinc-50 active:scale-95 min-w-[64px]"
+                disabled={!canGoPrev}
+                className={[
+                  "rounded-2xl border px-4 py-3 text-sm font-semibold min-w-[64px]",
+                  canGoPrev
+                    ? "border-zinc-200 bg-white text-zinc-950 hover:bg-zinc-50 active:scale-95"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-600 cursor-not-allowed",
+                ].join(" ")}
               >
                 Prev
               </button>
               <button
                 onClick={goNextPour}
-                className="rounded-2xl border border-zinc-900 bg-zinc-900 px-4 py-3 text-sm font-semibold text-white hover:bg-zinc-800 active:scale-95 min-w-[64px]"
+                disabled={!canGoNext}
+                className={[
+                  "rounded-2xl border px-4 py-3 text-sm font-semibold min-w-[64px]",
+                  canGoNext
+                    ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 active:scale-95"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-600 cursor-not-allowed",
+                ].join(" ")}
               >
                 Next
               </button>
