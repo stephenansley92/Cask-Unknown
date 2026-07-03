@@ -110,7 +110,6 @@ export default function HostPoursPage() {
   const [pours, setPours] = useState<PourRow[]>([]);
   const [whiskeys, setWhiskeys] = useState<WhiskeyOption[]>([]);
   const [libraryUserId, setLibraryUserId] = useState("");
-  const [librarySearch, setLibrarySearch] = useState("");
   const [newWhiskey, setNewWhiskey] = useState<WhiskeyFormValues>(
     EMPTY_WHISKEY_FORM_VALUES
   );
@@ -127,12 +126,6 @@ export default function HostPoursPage() {
     if (!sessionId) return "";
     return `/host/${sessionId}${hostKey ? `?key=${encodeURIComponent(hostKey)}` : ""}`;
   }, [hostKey, sessionId]);
-
-  const filteredWhiskeys = useMemo(() => {
-    const q = librarySearch.trim().toLowerCase();
-    if (!q) return whiskeys;
-    return whiskeys.filter((item) => buildWhiskeySearchText(item).includes(q));
-  }, [librarySearch, whiskeys]);
 
   const showSaved = (text = "Saved") => {
     setSaveHint(text);
@@ -301,6 +294,37 @@ export default function HostPoursPage() {
 
   const updatePour = (id: string, patch: Partial<PourRow>) => {
     setPours((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  };
+
+  const getLibraryMatchesForPour = (pour: PourRow) => {
+    const q = (pour.bottle_name || "").trim().toLowerCase();
+    if (!q) return [];
+    return whiskeys
+      .filter((item) => buildWhiskeySearchText(item).includes(q))
+      .slice(0, 20);
+  };
+
+  const updatePourBottleSearch = (pour: PourRow, value: string) => {
+    const keepsSelectedWhiskey =
+      Boolean(pour.whiskey_name) && value.trim() === pour.whiskey_name;
+
+    updatePour(pour.id, {
+      bottle_name: value,
+      whiskey_id: keepsSelectedWhiskey ? pour.whiskey_id : null,
+      whiskey_name: keepsSelectedWhiskey ? pour.whiskey_name : null,
+    });
+  };
+
+  const savePourBottleSearch = async (pour: PourRow, value: string) => {
+    const keepsSelectedWhiskey =
+      Boolean(pour.whiskey_name) && value.trim() === pour.whiskey_name;
+
+    await savePour({
+      ...pour,
+      bottle_name: value,
+      whiskey_id: keepsSelectedWhiskey ? pour.whiskey_id : null,
+      whiskey_name: keepsSelectedWhiskey ? pour.whiskey_name : null,
+    });
   };
 
   const savePour = async (row: PourRow) => {
@@ -608,7 +632,7 @@ export default function HostPoursPage() {
           <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4">
             <div className="font-semibold text-zinc-100">Assign bottles to pours</div>
             <div className="mt-1 text-xs text-zinc-400">
-              Search the whiskey library and tap a pour below to link it, or just type the bottle name directly.
+              Type in a pour&apos;s bottle field to search the whiskey library, then tap a match to link it.
               Names stay hidden until BIG REVEAL.
             </div>
             {!libraryUserId ? (
@@ -617,13 +641,6 @@ export default function HostPoursPage() {
               </div>
             ) : null}
           </div>
-
-          <input
-            value={librarySearch}
-            onChange={(e) => setLibrarySearch(e.target.value)}
-            placeholder="Search shared whiskey library"
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
-          />
 
           <button
             onClick={addPour}
@@ -640,6 +657,8 @@ export default function HostPoursPage() {
             )}
             {pours.map((pour) => {
               const isOpen = openPourId === pour.id;
+              const libraryMatches = getLibraryMatchesForPour(pour);
+              const hasBottleSearch = Boolean((pour.bottle_name || "").trim());
               return (
                 <div key={pour.id} className="rounded-2xl border border-zinc-700">
                   <button
@@ -657,12 +676,25 @@ export default function HostPoursPage() {
                   </button>
                   {isOpen ? (
                     <div className="px-4 pb-4 space-y-3">
+                      <div>
+                        <div className="text-xs text-zinc-400 mb-1.5">
+                          Bottle name{" "}
+                          <span className="text-amber-400/80 font-semibold">- hidden until BIG REVEAL</span>
+                        </div>
+                        <input
+                          value={pour.bottle_name ?? ""}
+                          onChange={(e) => updatePourBottleSearch(pour, e.target.value)}
+                          onBlur={(e) => savePourBottleSearch(pour, e.currentTarget.value)}
+                          placeholder="Search or type bottle name"
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                        />
+                      </div>
                       <div className="text-xs text-zinc-500">
                         Matching library results for this pour
                       </div>
                       <div className="max-h-48 overflow-y-auto space-y-2">
-                        {filteredWhiskeys.length > 0 ? (
-                          filteredWhiskeys.slice(0, 20).map((item) => (
+                        {libraryMatches.length > 0 ? (
+                          libraryMatches.map((item) => (
                             <button
                               key={`${pour.id}-${item.id}`}
                               type="button"
@@ -692,9 +724,9 @@ export default function HostPoursPage() {
                               ? "Sign in to load the shared whiskey library."
                               : whiskeys.length === 0
                               ? "No whiskeys are available in the shared library yet."
-                              : librarySearch.trim()
+                              : hasBottleSearch
                               ? "No whiskeys match your search."
-                              : "No whiskeys are available for selection."}
+                              : "Type a bottle name above to search the shared library."}
                           </div>
                         )}
                       </div>
@@ -705,24 +737,6 @@ export default function HostPoursPage() {
                       >
                         Clear whiskey selection
                       </button>
-                      <div>
-                        <div className="text-xs text-zinc-400 mb-1.5">
-                          Bottle name{" "}
-                          <span className="text-amber-400/80 font-semibold">— hidden until BIG REVEAL</span>
-                        </div>
-                        <input
-                          value={pour.bottle_name ?? ""}
-                          onChange={(e) => updatePour(pour.id, { bottle_name: e.target.value })}
-                          onBlur={(e) =>
-                            savePour({
-                              ...pour,
-                              bottle_name: e.currentTarget.value,
-                            })
-                          }
-                          placeholder="e.g. Eagle Rare 10 Year"
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                        />
-                      </div>
                       <button
                         type="button"
                         onClick={() => deletePour(pour.id)}

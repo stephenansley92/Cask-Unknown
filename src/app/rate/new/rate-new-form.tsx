@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown, Plus } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type {
   RateTemplate,
@@ -115,6 +116,7 @@ export function RateNewForm({
   const [selectedWhiskeyId, setSelectedWhiskeyId] = useState("");
   const [search, setSearch] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(true);
+  const [isCreateWhiskeyOpen, setIsCreateWhiskeyOpen] = useState(false);
   const [newWhiskey, setNewWhiskey] = useState<WhiskeyFormValues>(
     EMPTY_WHISKEY_FORM_VALUES
   );
@@ -167,7 +169,6 @@ export function RateNewForm({
     const handleScroll = () => {
       setIsScrollLocked(true);
       activeSliderTouch.current = null;
-
 
       clearScrollLock();
     };
@@ -308,6 +309,7 @@ export function RateNewForm({
     setSelectedWhiskeyId(whiskey.id);
     setNewWhiskey(whiskeyToFormValues(whiskey));
     setShowSearchResults(false);
+    setIsCreateWhiskeyOpen(false);
     setError("");
   };
 
@@ -327,6 +329,7 @@ export function RateNewForm({
         setSelectedWhiskeyId(existingLocal.id);
         setSearch("");
         setNewWhiskey(EMPTY_WHISKEY_FORM_VALUES);
+        setIsCreateWhiskeyOpen(false);
         return existingLocal.id;
       }
     }
@@ -424,6 +427,7 @@ export function RateNewForm({
     setSelectedWhiskeyId(created.id);
     setSearch("");
     setNewWhiskey(EMPTY_WHISKEY_FORM_VALUES);
+    setIsCreateWhiskeyOpen(false);
 
     return created.id;
   };
@@ -604,105 +608,132 @@ export function RateNewForm({
 
       {/* ── 2. Create new whiskey ──────────────────────────────── */}
       <div className="rounded-3xl border border-zinc-700 p-5">
-        <div className="text-sm font-semibold text-zinc-200">
-          2. Create new whiskey
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3">
-          <input
-            value={newWhiskey.name}
-            onChange={(e) => updateNewWhiskey("name", e.target.value)}
-            placeholder="Name (required, e.g. Eagle Rare 10)"
-            className={INPUT_CLS}
+        <button
+          type="button"
+          onClick={() => setIsCreateWhiskeyOpen((open) => !open)}
+          aria-expanded={isCreateWhiskeyOpen}
+          className="flex w-full items-center justify-between gap-4 text-left"
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-zinc-200">
+                2. Create new whiskey
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                Add a bottle only if it is not already in the library.
+              </span>
+            </span>
+          </span>
+          <ChevronDown
+            className={[
+              "h-5 w-5 shrink-0 text-zinc-400 transition-transform duration-150",
+              isCreateWhiskeyOpen ? "rotate-180" : "",
+            ].join(" ")}
+            aria-hidden="true"
           />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        </button>
+
+        {isCreateWhiskeyOpen ? (
+          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-zinc-700 pt-4">
             <input
-              value={newWhiskey.distillery}
-              onChange={(e) => updateNewWhiskey("distillery", e.target.value)}
-              placeholder="Distillery (optional, e.g. Buffalo Trace)"
+              value={newWhiskey.name}
+              onChange={(e) => updateNewWhiskey("name", e.target.value)}
+              placeholder="Name (required, e.g. Eagle Rare 10)"
               className={INPUT_CLS}
             />
-            <input
-              value={newWhiskey.proof}
-              onChange={(e) => updateNewWhiskey("proof", e.target.value)}
-              placeholder="Proof (optional, e.g. 125)"
-              inputMode="decimal"
-              className={INPUT_CLS}
-            />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                value={newWhiskey.distillery}
+                onChange={(e) => updateNewWhiskey("distillery", e.target.value)}
+                placeholder="Distillery (optional, e.g. Buffalo Trace)"
+                className={INPUT_CLS}
+              />
+              <input
+                value={newWhiskey.proof}
+                onChange={(e) => updateNewWhiskey("proof", e.target.value)}
+                placeholder="Proof (optional, e.g. 125)"
+                inputMode="decimal"
+                className={INPUT_CLS}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                value={newWhiskey.bottleSize}
+                onChange={(e) => updateNewWhiskey("bottleSize", e.target.value)}
+                placeholder="Bottle size (optional, e.g. 750ml)"
+                className={INPUT_CLS}
+              />
+              <input
+                value={newWhiskey.age}
+                onChange={(e) => updateNewWhiskey("age", e.target.value)}
+                placeholder="Age (optional, e.g. 10 years)"
+                className={INPUT_CLS}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                value={newWhiskey.category}
+                onChange={(e) => updateNewWhiskey("category", e.target.value)}
+                placeholder="Category (optional, e.g. Whiskey)"
+                className={INPUT_CLS}
+              />
+              <input
+                value={newWhiskey.subcategory}
+                onChange={(e) => updateNewWhiskey("subcategory", e.target.value)}
+                placeholder="Subcategory (optional, e.g. Bourbon)"
+                className={INPUT_CLS}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                value={newWhiskey.rarity}
+                onChange={(e) => updateNewWhiskey("rarity", e.target.value)}
+                placeholder="Rarity (optional, e.g. Limited release)"
+                className={INPUT_CLS}
+              />
+              <input
+                value={newWhiskey.status}
+                onChange={(e) => updateNewWhiskey("status", e.target.value)}
+                placeholder="Status (optional, e.g. Open)"
+                className={INPUT_CLS}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <input
+                value={newWhiskey.msrp}
+                onChange={(e) => updateNewWhiskey("msrp", e.target.value)}
+                placeholder="MSRP (optional, e.g. 59.99)"
+                inputMode="decimal"
+                className={INPUT_CLS}
+              />
+              <input
+                value={newWhiskey.secondary}
+                onChange={(e) => updateNewWhiskey("secondary", e.target.value)}
+                placeholder="Secondary (optional, e.g. 149.99)"
+                inputMode="decimal"
+                className={INPUT_CLS}
+              />
+              <input
+                value={newWhiskey.paid}
+                onChange={(e) => updateNewWhiskey("paid", e.target.value)}
+                placeholder="Paid (optional, e.g. 79.99)"
+                inputMode="decimal"
+                className={INPUT_CLS}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={createWhiskey}
+              disabled={creatingWhiskey}
+              className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-700 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 active:scale-95 disabled:opacity-60"
+            >
+              {creatingWhiskey ? "Creating..." : "Create & Select"}
+            </button>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <input
-              value={newWhiskey.bottleSize}
-              onChange={(e) => updateNewWhiskey("bottleSize", e.target.value)}
-              placeholder="Bottle size (optional, e.g. 750ml)"
-              className={INPUT_CLS}
-            />
-            <input
-              value={newWhiskey.age}
-              onChange={(e) => updateNewWhiskey("age", e.target.value)}
-              placeholder="Age (optional, e.g. 10 years)"
-              className={INPUT_CLS}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <input
-              value={newWhiskey.category}
-              onChange={(e) => updateNewWhiskey("category", e.target.value)}
-              placeholder="Category (optional, e.g. Whiskey)"
-              className={INPUT_CLS}
-            />
-            <input
-              value={newWhiskey.subcategory}
-              onChange={(e) => updateNewWhiskey("subcategory", e.target.value)}
-              placeholder="Subcategory (optional, e.g. Bourbon)"
-              className={INPUT_CLS}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <input
-              value={newWhiskey.rarity}
-              onChange={(e) => updateNewWhiskey("rarity", e.target.value)}
-              placeholder="Rarity (optional, e.g. Limited release)"
-              className={INPUT_CLS}
-            />
-            <input
-              value={newWhiskey.status}
-              onChange={(e) => updateNewWhiskey("status", e.target.value)}
-              placeholder="Status (optional, e.g. Open)"
-              className={INPUT_CLS}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <input
-              value={newWhiskey.msrp}
-              onChange={(e) => updateNewWhiskey("msrp", e.target.value)}
-              placeholder="MSRP (optional, e.g. 59.99)"
-              inputMode="decimal"
-              className={INPUT_CLS}
-            />
-            <input
-              value={newWhiskey.secondary}
-              onChange={(e) => updateNewWhiskey("secondary", e.target.value)}
-              placeholder="Secondary (optional, e.g. 149.99)"
-              inputMode="decimal"
-              className={INPUT_CLS}
-            />
-            <input
-              value={newWhiskey.paid}
-              onChange={(e) => updateNewWhiskey("paid", e.target.value)}
-              placeholder="Paid (optional, e.g. 79.99)"
-              inputMode="decimal"
-              className={INPUT_CLS}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={createWhiskey}
-            disabled={creatingWhiskey}
-            className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-700 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 active:scale-95 disabled:opacity-60"
-          >
-            {creatingWhiskey ? "Creating..." : "Create & Select"}
-          </button>
-        </div>
+        ) : null}
       </div>
 
       {/* ── 3. Score ──────────────────────────────────────────── */}
