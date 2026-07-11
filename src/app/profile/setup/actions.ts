@@ -2,19 +2,24 @@
 
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 
-function setupRedirect(message = "") {
-  if (!message) return "/profile/setup";
-  return `/profile/setup?message=${encodeURIComponent(message)}`;
+function setupRedirect(message = "", redirectTo = "") {
+  const params = new URLSearchParams();
+  if (message) params.set("message", message);
+  if (redirectTo) params.set("redirectTo", redirectTo);
+  const query = params.toString();
+  return query ? `/profile/setup?${query}` : "/profile/setup";
 }
 
 export async function saveProfileSetupAction(formData: FormData) {
   const displayNameValue = formData.get("displayName");
   const displayName =
     typeof displayNameValue === "string" ? displayNameValue.trim() : "";
+  const redirectTo = safeInternalPath(formData.get("redirectTo"));
 
   if (!displayName) {
-    redirect(setupRedirect("Display name is required."));
+    redirect(setupRedirect("Display name is required.", redirectTo));
   }
 
   const supabase = createSupabaseServerClient();
@@ -24,11 +29,14 @@ export async function saveProfileSetupAction(formData: FormData) {
   } = await supabase.auth.getUser();
 
   if (userError) {
-    redirect(setupRedirect(userError.message));
+    redirect(setupRedirect(userError.message, redirectTo));
   }
 
   if (!user) {
-    redirect("/login?redirectTo=%2Fprofile%2Fsetup");
+    const setupPath = redirectTo
+      ? `/profile/setup?redirectTo=${encodeURIComponent(redirectTo)}`
+      : "/profile/setup";
+    redirect(`/login?redirectTo=${encodeURIComponent(setupPath)}`);
   }
 
   const { data: existingProfile, error: existingError } = await supabase
@@ -38,11 +46,11 @@ export async function saveProfileSetupAction(formData: FormData) {
     .maybeSingle();
 
   if (existingError) {
-    redirect(setupRedirect(existingError.message));
+    redirect(setupRedirect(existingError.message, redirectTo));
   }
 
   if (existingProfile) {
-    redirect("/profile");
+    redirect(redirectTo || "/profile");
   }
 
   const { error: insertError } = await supabase.from("user_profiles").insert({
@@ -52,8 +60,8 @@ export async function saveProfileSetupAction(formData: FormData) {
   });
 
   if (insertError) {
-    redirect(setupRedirect(insertError.message));
+    redirect(setupRedirect(insertError.message, redirectTo));
   }
 
-  redirect("/profile");
+  redirect(redirectTo || "/profile");
 }

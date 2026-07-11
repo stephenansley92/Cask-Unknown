@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { loadPublicRateHistoryRecords } from "@/lib/profile-history/read-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 import DeleteEntryForm from "./delete-entry-form";
 
 type HistoryMode = "blind" | "rate";
@@ -109,9 +110,7 @@ function normalizeOwner(value: string) {
 }
 
 function normalizeReturnTo(value: string, fallback: string) {
-  const trimmed = value.trim();
-  if (!trimmed || !trimmed.startsWith("/")) return fallback;
-  return trimmed;
+  return safeInternalPath(value, fallback);
 }
 
 function formatRatedAt(value?: string) {

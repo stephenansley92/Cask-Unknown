@@ -3,11 +3,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 
 function getRedirectTo(formData: FormData) {
-  const value = formData.get("redirectTo");
-  if (typeof value !== "string") return "";
-  return value.startsWith("/") ? value : "";
+  return safeInternalPath(formData.get("redirectTo"));
 }
 
 function loginRedirect(message: string, redirectTo = "") {

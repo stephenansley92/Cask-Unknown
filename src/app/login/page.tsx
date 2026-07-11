@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 import { signInAction, signOutAction, signUpAction } from "./actions";
 
 type LoginPageProps = {
@@ -17,11 +18,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   const message =
     typeof searchParams?.message === "string" ? searchParams.message : "";
-  const redirectTo =
-    typeof searchParams?.redirectTo === "string" &&
-    searchParams.redirectTo.startsWith("/")
-      ? searchParams.redirectTo
-      : "";
+  const redirectTo = safeInternalPath(searchParams?.redirectTo);
 
   return (
     <main className="min-h-screen bg-zinc-900 text-white p-6 flex items-center justify-center">

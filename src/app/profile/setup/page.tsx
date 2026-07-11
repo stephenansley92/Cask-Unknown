@@ -1,23 +1,30 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 import { saveProfileSetupAction } from "./actions";
 
 type ProfileSetupPageProps = {
   searchParams?: {
     message?: string;
+    redirectTo?: string;
   };
 };
 
 export default async function ProfileSetupPage({
   searchParams,
 }: ProfileSetupPageProps) {
+  const redirectTo = safeInternalPath(searchParams?.redirectTo);
+
   const supabase = createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login?redirectTo=%2Fprofile%2Fsetup");
+    const setupPath = redirectTo
+      ? `/profile/setup?redirectTo=${encodeURIComponent(redirectTo)}`
+      : "/profile/setup";
+    redirect(`/login?redirectTo=${encodeURIComponent(setupPath)}`);
   }
 
   const { data: existingProfile } = await supabase
@@ -27,7 +34,7 @@ export default async function ProfileSetupPage({
     .maybeSingle();
 
   if (existingProfile) {
-    redirect("/profile");
+    redirect(redirectTo || "/profile");
   }
 
   const message =
@@ -51,6 +58,7 @@ export default async function ProfileSetupPage({
         ) : null}
 
         <form action={saveProfileSetupAction} className="mt-6 space-y-4">
+          <input type="hidden" name="redirectTo" value={redirectTo} />
           <div>
             <label
               htmlFor="displayName"

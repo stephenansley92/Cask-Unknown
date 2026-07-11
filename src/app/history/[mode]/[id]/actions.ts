@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 
 type HistoryMode = "blind" | "rate";
 
@@ -16,11 +17,7 @@ function normalizeMode(value: string): HistoryMode | null {
 }
 
 function normalizeReturnTo(value: string) {
-  if (!value || !value.startsWith("/")) {
-    return "/profile";
-  }
-
-  return value;
+  return safeInternalPath(value, "/profile");
 }
 
 function withMessage(path: string, message: string) {

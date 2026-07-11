@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { safeInternalPath } from "@/lib/redirects";
 
 type RateDetailPageProps = {
   params: {
@@ -29,8 +30,9 @@ export default function RateDetailPageRedirect({
   const returnTo = getSingleQueryValue(searchParams?.returnTo);
   const owner = getSingleQueryValue(searchParams?.owner);
 
-  if (returnTo && returnTo.startsWith("/")) {
-    query.set("returnTo", returnTo);
+  const safeReturnTo = safeInternalPath(returnTo);
+  if (safeReturnTo) {
+    query.set("returnTo", safeReturnTo);
   }
 
   if (owner) {
