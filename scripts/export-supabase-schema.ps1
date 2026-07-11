@@ -17,9 +17,27 @@ $schemaPath = Join-Path $outputPath "production-schema.sql"
 $rolesPath = Join-Path $outputPath "production-roles.sql"
 $preflightPath = Join-Path $projectRoot "supabase/preflight.sql"
 $reportPath = Join-Path $outputPath "preflight-report.txt"
+$catalogScript = Join-Path $projectRoot "scripts/export-postgres-catalog.mjs"
 
 Push-Location $projectRoot
 try {
+  & node $catalogScript $OutputDirectory
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "Direct PostgreSQL catalog export failed."
+  }
+
+  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    Add-Content -LiteralPath $reportPath -Value (
+      "Supabase CLI schema export was skipped because Docker is unavailable. " +
+      "The direct catalog and aggregate preflight exports completed successfully."
+    )
+    Write-Warning "Docker is unavailable; continuing with the direct catalog export."
+    Write-Output "Catalog export: $(Join-Path $outputPath 'production-catalog.json')"
+    Write-Output "Preflight data: $(Join-Path $outputPath 'preflight-results.json')"
+    return
+  }
+
   & npx.cmd --yes supabase@2.109.1 db dump `
     --db-url $DbUrl `
     --schema "public,extensions" `
@@ -27,7 +45,14 @@ try {
     --file $schemaPath
 
   if ($LASTEXITCODE -ne 0) {
-    throw "Supabase schema export failed."
+    Add-Content -LiteralPath $reportPath -Value (
+      "Supabase CLI schema export was skipped because its Docker dependency was unavailable. " +
+      "The direct catalog and aggregate preflight exports completed successfully."
+    )
+    Write-Warning "Supabase CLI schema export requires Docker; continuing with the direct catalog export."
+    Write-Output "Catalog export: $(Join-Path $outputPath 'production-catalog.json')"
+    Write-Output "Preflight data: $(Join-Path $outputPath 'preflight-results.json')"
+    return
   }
 
   & npx.cmd --yes supabase@2.109.1 db dump `
