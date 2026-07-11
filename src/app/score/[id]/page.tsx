@@ -15,6 +15,7 @@ import {
   type ScoreDraft,
 } from "@/lib/scoring/categories";
 import { createScoreAutosave, type ScoreAutosave } from "@/lib/scoring/autosave";
+import { logEvent, newCorrelationId, userFacingError } from "@/lib/log";
 
 type SessionRow = {
   id: string;
@@ -396,7 +397,16 @@ export default function ScorePage() {
     }
 
     if (uErr) {
-      setSaveError(uErr.message);
+      const ref = newCorrelationId();
+      logEvent("error", "score.save_failed", {
+        ref,
+        sessionId,
+        pourId,
+        lockCore: !!extra?.lockCore,
+        lockFinal: !!extra?.lockFinal,
+        message: uErr.message,
+      });
+      setSaveError(userFacingError("Check your connection and try again.", ref));
       showHint("Failed ✗");
       // Revert optimistic lock state if a lock op failed
       if (extra?.lockCore) setCoreLockedByPour((prev) => ({ ...prev, [pourId]: false }));
@@ -445,7 +455,13 @@ export default function ScorePage() {
           .single();
 
         if (sessErr) {
-          setError(sessErr.message);
+          const ref = newCorrelationId();
+          logEvent("error", "score.load_session_failed", {
+            ref,
+            sessionId,
+            message: sessErr.message,
+          });
+          setError(userFacingError("Could not load this session.", ref));
           setLoading(false);
           return;
         }
@@ -458,7 +474,13 @@ export default function ScorePage() {
           .order("sort_order", { ascending: true });
 
         if (poursErr) {
-          setError(poursErr.message);
+          const ref = newCorrelationId();
+          logEvent("error", "score.load_pours_failed", {
+            ref,
+            sessionId,
+            message: poursErr.message,
+          });
+          setError(userFacingError("Could not load the pours for this session.", ref));
           setLoading(false);
           return;
         }
@@ -515,7 +537,13 @@ export default function ScorePage() {
 
         setLoading(false);
       } catch (e: any) {
-        setError(e?.message || "Unknown error.");
+        const ref = newCorrelationId();
+        logEvent("error", "score.load_failed", {
+          ref,
+          sessionId,
+          message: e?.message,
+        });
+        setError(userFacingError("Something went wrong while loading scoring.", ref));
         setLoading(false);
       }
     };
@@ -634,7 +662,14 @@ export default function ScorePage() {
     try {
       await loadScoreForPour(pourId, participant.id);
     } catch (e: any) {
-      setError(e?.message || "Could not load score for this pour.");
+      const ref = newCorrelationId();
+      logEvent("error", "score.load_pour_score_failed", {
+        ref,
+        sessionId,
+        pourId,
+        message: e?.message,
+      });
+      setError(userFacingError("Could not load your score for this pour.", ref));
     }
   };
 

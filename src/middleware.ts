@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { updateSession } from "@/lib/supabase/middleware";
+import { logEvent } from "@/lib/log";
 
 export async function middleware(request: NextRequest) {
   const { response, user } = await updateSession(request);
@@ -39,11 +40,23 @@ export async function middleware(request: NextRequest) {
         },
       });
 
-      const { data: profile } = await checkClient
+      const { data: profile, error: profileError } = await checkClient
         .from("user_profiles")
         .select("user_id")
         .eq("user_id", user.id)
         .maybeSingle();
+
+      if (profileError) {
+        // A failed lookup is an outage, not a missing profile. Fail open so a
+        // database blip doesn't trap every signed-in user in a setup loop;
+        // page-level checks still apply.
+        logEvent("error", "middleware.profile_check_failed", {
+          path: pathname,
+          code: profileError.code,
+          message: profileError.message,
+        });
+        return response;
+      }
 
       if (!profile) {
         const setupUrl = request.nextUrl.clone();

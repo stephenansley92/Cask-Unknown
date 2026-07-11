@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/redirects";
+import { logEvent } from "@/lib/log";
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
@@ -19,13 +20,20 @@ export async function GET(request: NextRequest) {
       } = await supabase.auth.getUser();
 
       if (user) {
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("user_profiles")
           .select("user_id")
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (!profile) {
+        if (profileError) {
+          // Outage, not a missing profile: continue to the destination
+          // instead of pushing an existing user into setup.
+          logEvent("error", "auth.callback.profile_check_failed", {
+            code: profileError.code,
+            message: profileError.message,
+          });
+        } else if (!profile) {
           const setupUrl = new URL("/profile/setup", requestUrl.origin);
           // Preserve the intended destination so setup can redirect there after completion
           if (redirectPath !== "/login") {
@@ -37,6 +45,11 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.redirect(new URL(redirectPath, requestUrl.origin));
     }
+
+    logEvent("error", "auth.callback.exchange_failed", {
+      code: error.code,
+      message: error.message,
+    });
   }
 
   return NextResponse.redirect(

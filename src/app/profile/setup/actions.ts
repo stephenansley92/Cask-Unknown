@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/redirects";
+import { logEvent, newCorrelationId, userFacingError } from "@/lib/log";
 
 function setupRedirect(message = "", redirectTo = "") {
   const params = new URLSearchParams();
@@ -29,7 +30,18 @@ export async function saveProfileSetupAction(formData: FormData) {
   } = await supabase.auth.getUser();
 
   if (userError) {
-    redirect(setupRedirect(userError.message, redirectTo));
+    const ref = newCorrelationId();
+    logEvent("error", "profile_setup.get_user_failed", {
+      ref,
+      code: userError.code,
+      message: userError.message,
+    });
+    redirect(
+      setupRedirect(
+        userFacingError("Could not verify your session. Please try again.", ref),
+        redirectTo
+      )
+    );
   }
 
   if (!user) {
@@ -46,7 +58,18 @@ export async function saveProfileSetupAction(formData: FormData) {
     .maybeSingle();
 
   if (existingError) {
-    redirect(setupRedirect(existingError.message, redirectTo));
+    const ref = newCorrelationId();
+    logEvent("error", "profile_setup.profile_check_failed", {
+      ref,
+      code: existingError.code,
+      message: existingError.message,
+    });
+    redirect(
+      setupRedirect(
+        userFacingError("Could not check your profile. Please try again.", ref),
+        redirectTo
+      )
+    );
   }
 
   if (existingProfile) {
@@ -60,7 +83,18 @@ export async function saveProfileSetupAction(formData: FormData) {
   });
 
   if (insertError) {
-    redirect(setupRedirect(insertError.message, redirectTo));
+    const ref = newCorrelationId();
+    logEvent("error", "profile_setup.insert_failed", {
+      ref,
+      code: insertError.code,
+      message: insertError.message,
+    });
+    redirect(
+      setupRedirect(
+        userFacingError("Could not save your profile. Please try again.", ref),
+        redirectTo
+      )
+    );
   }
 
   redirect(redirectTo || "/profile");
