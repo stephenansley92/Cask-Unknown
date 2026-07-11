@@ -14,7 +14,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "audit:prod": "npm audit --omit=dev",
+    "check": "npm run lint && npm run test && npm run typecheck && npm run build"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.0",
