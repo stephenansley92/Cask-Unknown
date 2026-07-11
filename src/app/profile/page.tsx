@@ -173,7 +173,7 @@ export default function ProfilePage() {
   const [profileResolved, setProfileResolved] = useState(false);
   const [authUserId, setAuthUserId] = useState("");
   const [publicProfileDisplayName, setPublicProfileDisplayName] = useState("");
-  const [publicProfileIsPublic, setPublicProfileIsPublic] = useState(true);
+  const [publicProfileIsPublic, setPublicProfileIsPublic] = useState(false);
   const [publicProfileError, setPublicProfileError] = useState("");
   const [savingPublicProfile, setSavingPublicProfile] = useState(false);
   const [collectionFile, setCollectionFile] = useState<File | null>(null);
@@ -254,19 +254,21 @@ export default function ProfilePage() {
       if (publicProfileLoadError) {
         setPublicProfileError(publicProfileLoadError.message);
         setPublicProfileDisplayName(resolvedDisplayName);
-        setPublicProfileIsPublic(true);
+        setPublicProfileIsPublic(false);
         setProfileResolved(true);
         return;
       }
 
       if (!existingPublicProfile) {
+        // New profiles start private; the user opts into Community
+        // visibility explicitly via the toggle below.
         const { error: publicProfileUpsertError } = await authClient
           .from("public_profiles")
           .upsert(
             {
               user_id: user.id,
               display_name: resolvedDisplayName,
-              is_public: true,
+              is_public: false,
             },
             {
               onConflict: "user_id",
@@ -276,13 +278,13 @@ export default function ProfilePage() {
         if (publicProfileUpsertError) {
           setPublicProfileError(publicProfileUpsertError.message);
           setPublicProfileDisplayName(resolvedDisplayName);
-          setPublicProfileIsPublic(true);
+          setPublicProfileIsPublic(false);
           setProfileResolved(true);
           return;
         }
 
         setPublicProfileDisplayName(resolvedDisplayName);
-        setPublicProfileIsPublic(true);
+        setPublicProfileIsPublic(false);
       } else {
         const publicProfile = existingPublicProfile as PublicProfileRow;
         setPublicProfileDisplayName(
@@ -1327,7 +1329,10 @@ export default function ProfilePage() {
               Community visibility
             </div>
             <div className="mt-2 text-sm text-zinc-500">
-              For beta, public profiles default to on. Your public profile only exposes your display name and aggregated community stats.
+              Your profile is private by default. Turning this on lists you on
+              the Community leaderboard and makes your tasting history —
+              including your scores and written notes — visible to anyone with
+              the link.
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
