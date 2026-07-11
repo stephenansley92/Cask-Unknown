@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { QRCodeCanvas } from "qrcode.react";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { errorMessage } from "@/lib/log";
 import { Lock, Users, Scan, Copy, Wine, Unlock, Trophy, Star } from "lucide-react";
 
 type SessionRow = {
@@ -124,9 +125,9 @@ export default function HostPage() {
       setExpectedCount(expected);
       setCoreLockedCount(coreCount);
       setFinalLockedCount(finalCount);
-    } catch (e: any) {
+    } catch (e: unknown) {
       // don't hard-fail the host page if stats fail
-      console.warn("Stats refresh failed:", e?.message || e);
+      console.warn("Stats refresh failed:", errorMessage(e));
     } finally {
       setStatsLoading(false);
     }
@@ -161,7 +162,7 @@ export default function HostPage() {
           return;
         }
 
-        if (!data || (data as any).host_key !== hostKey) {
+        if (!data || data.host_key !== hostKey) {
           setError("Host key mismatch. This link is not authorized.");
           setLoading(false);
           return;
@@ -183,8 +184,8 @@ export default function HostPage() {
 
         // initial stats
         await refreshStats();
-      } catch (e: any) {
-        setError(e?.message || "Unknown error.");
+      } catch (e: unknown) {
+        setError(errorMessage(e));
         setLoading(false);
       }
     };
@@ -214,8 +215,8 @@ export default function HostPage() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sessionId}` },
-        (payload: any) => {
-          const newStatus = (payload?.new?.status || "") as string;
+        (payload) => {
+          const newStatus = String(payload.new?.status || "");
           setSession((prev) => (prev ? { ...prev, status: newStatus } : prev));
         }
       )
@@ -296,8 +297,8 @@ export default function HostPage() {
       // Don't optimistically update — the realtime subscription will reflect the change.
       setBusy(false);
       after?.();
-    } catch (e: any) {
-      setError((e as any)?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(errorMessage(e));
       setBusy(false);
     }
   };
@@ -337,8 +338,8 @@ export default function HostPage() {
 
       await refreshStats();
       setBusy(false);
-    } catch (e: any) {
-      setError((e as any)?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(errorMessage(e));
       setBusy(false);
     }
   };

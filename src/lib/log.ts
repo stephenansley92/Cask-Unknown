@@ -9,6 +9,20 @@
 
 type LogLevel = "info" | "warn" | "error";
 
+export function errorMessage(error: unknown, fallback = "Unknown error.") {
+  if (error instanceof Error && error.message) return error.message;
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string" &&
+    error.message
+  ) {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function newCorrelationId(): string {
   return Math.random().toString(36).slice(2, 10);
 }

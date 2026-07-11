@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { errorMessage } from "@/lib/log";
 
 type SessionRow = {
   id: string;
@@ -109,8 +110,8 @@ export default function HostTastersPage() {
 
       setParticipants((participantRows || []) as ParticipantRow[]);
       setLoading(false);
-    } catch (e: any) {
-      setError(e?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(errorMessage(e));
       setLoading(false);
     }
   };
@@ -164,8 +165,8 @@ export default function HostTastersPage() {
       setParticipants((prev) => prev.filter((p) => p.id !== participant.id));
       setBusyId(null);
       showSaved("Taster removed");
-    } catch (e: any) {
-      setError(e?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(errorMessage(e));
       setBusyId(null);
     }
   };

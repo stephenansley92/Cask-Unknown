@@ -15,7 +15,12 @@ import {
   type ScoreDraft,
 } from "@/lib/scoring/categories";
 import { createScoreAutosave, type ScoreAutosave } from "@/lib/scoring/autosave";
-import { logEvent, newCorrelationId, userFacingError } from "@/lib/log";
+import {
+  errorMessage,
+  logEvent,
+  newCorrelationId,
+  userFacingError,
+} from "@/lib/log";
 
 type SessionRow = {
   id: string;
@@ -67,7 +72,7 @@ type ScoreRow = {
 };
 
 type SliderTouchState = {
-  key: keyof ScoreDraft;
+  key: ScoreCategoryKey;
   startX: number;
   startY: number;
   input: HTMLInputElement;
@@ -78,6 +83,18 @@ type SliderTouchState = {
 };
 
 type LockExtra = { lockCore?: boolean; lockFinal?: boolean };
+type ScoreCategoryKey = (typeof CATEGORY_SPEC)[number]["key"];
+type ScoreWritePayload = Pick<ScoreDraft, ScoreCategoryKey> & {
+  session_id: string;
+  pour_id: string;
+  participant_id: string;
+  total: number;
+  notes: string;
+  core_locked?: boolean;
+  core_locked_at?: string;
+  final_locked?: boolean;
+  final_locked_at?: string;
+};
 
 function storageKey(sessionId: string) {
   return `cask_unknown_participant_${sessionId}`;
@@ -101,7 +118,6 @@ export default function ScorePage() {
   const [activePourId, setActivePourId] = useState<string | null>(null);
 
   const [draftByPour, setDraftByPour] = useState<Record<string, ScoreDraft>>({});
-  const [scoreIdByPour, setScoreIdByPour] = useState<Record<string, string>>({});
   const [coreLockedByPour, setCoreLockedByPour] = useState<Record<string, boolean>>({});
   const [finalLockedByPour, setFinalLockedByPour] = useState<Record<string, boolean>>({});
 
@@ -253,7 +269,6 @@ export default function ScorePage() {
   };
 
   const applyScoreRow = (row: ScoreRow) => {
-    setScoreIdByPour((prev) => ({ ...prev, [row.pour_id]: row.id }));
     setDraftForPour(row.pour_id, {
       nose: row.nose ?? 0,
       flavor: row.flavor ?? 0,
@@ -329,7 +344,7 @@ export default function ScorePage() {
     performSaveRef.current = async (pourId, d, extra) => {
       if (!sessionId || !participant) return;
 
-      const payload: any = {
+      const payload: ScoreWritePayload = {
       session_id: sessionId,
       pour_id: pourId,
       participant_id: participant.id,
@@ -365,16 +380,12 @@ export default function ScorePage() {
     showHint(extra?.lockFinal ? "Locking final…" : extra?.lockCore ? "Locking…" : "Saving…");
     setSaveError("");
 
-    let data: { id: string } | null = null;
     let uErr: { message: string } | null = null;
 
     if (extra?.lockCore || extra?.lockFinal) {
       const result = await supabase
         .from("scores")
-        .upsert(payload, { onConflict: "pour_id,participant_id" })
-        .select("id")
-        .single();
-      data = result.data as { id: string } | null;
+        .upsert(payload, { onConflict: "pour_id,participant_id" });
       uErr = result.error;
     } else {
       const updateResult = await supabase
@@ -387,11 +398,8 @@ export default function ScorePage() {
 
       if (updateResult.error) {
         uErr = updateResult.error;
-      } else if (updateResult.data) {
-        data = updateResult.data as { id: string };
-      } else {
-        const insertResult = await supabase.from("scores").insert(payload).select("id").single();
-        data = insertResult.data as { id: string } | null;
+      } else if (!updateResult.data) {
+        const insertResult = await supabase.from("scores").insert(payload);
         uErr = insertResult.error;
       }
     }
@@ -413,8 +421,6 @@ export default function ScorePage() {
       if (extra?.lockFinal) setFinalLockedByPour((prev) => ({ ...prev, [pourId]: false }));
       return;
     }
-
-    if (data?.id) setScoreIdByPour((prev) => ({ ...prev, [pourId]: data.id as string }));
 
     if (extra?.lockCore) {
       setCoreLockedByPour((prev) => ({ ...prev, [pourId]: true }));
@@ -514,7 +520,7 @@ export default function ScorePage() {
           .eq("id", participantId)
           .single();
 
-        if (pErr || !p || (p as any).session_id !== sessionId) {
+        if (pErr || !p || p.session_id !== sessionId) {
           window.localStorage.removeItem(storageKey(sessionId));
           router.push(joinUrl);
           return;
@@ -536,12 +542,12 @@ export default function ScorePage() {
         setActivePourId(initialPourId);
 
         setLoading(false);
-      } catch (e: any) {
+      } catch (e: unknown) {
         const ref = newCorrelationId();
         logEvent("error", "score.load_failed", {
           ref,
           sessionId,
-          message: e?.message,
+          message: errorMessage(e),
         });
         setError(userFacingError("Something went wrong while loading scoring.", ref));
         setLoading(false);
@@ -556,6 +562,9 @@ export default function ScorePage() {
       // Persist pending edits instead of dropping them on navigation.
       void autosaveRef.current?.flushAll();
     };
+    // The loader is render-local and this effect must only restart when the
+    // route identity changes; adding it would reload on every score render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, router, joinUrl]);
 
   // Flush pending saves when the tab is hidden or the page is being unloaded,
@@ -601,8 +610,8 @@ export default function ScorePage() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sessionId}` },
-        (payload: any) => {
-          const newStatus = (payload?.new?.status || "") as string;
+        (payload) => {
+          const newStatus = String(payload.new?.status || "");
           setSession((prev) => (prev ? { ...prev, status: newStatus } : prev));
         }
       )
@@ -621,9 +630,9 @@ export default function ScorePage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "scores", filter: `participant_id=eq.${participant.id}` },
-        (payload: any) => {
-          const nextRow = payload?.new ?? null;
-          const prevRow = payload?.old ?? null;
+        (payload) => {
+          const nextRow = payload.new as Partial<ScoreRow>;
+          const prevRow = payload.old as Partial<ScoreRow>;
           const row = nextRow || prevRow;
           const pourId = row?.pour_id as string | undefined;
 
@@ -661,19 +670,19 @@ export default function ScorePage() {
 
     try {
       await loadScoreForPour(pourId, participant.id);
-    } catch (e: any) {
+    } catch (e: unknown) {
       const ref = newCorrelationId();
       logEvent("error", "score.load_pour_score_failed", {
         ref,
         sessionId,
         pourId,
-        message: e?.message,
+        message: errorMessage(e),
       });
       setError(userFacingError("Could not load your score for this pour.", ref));
     }
   };
 
-  const setSliderValue = (key: keyof ScoreDraft, value: number) => {
+  const setSliderValue = (key: ScoreCategoryKey, value: number) => {
     if (!activePourId) return;
 
     const spec = CATEGORY_SPEC.find((c) => c.key === key);
@@ -690,12 +699,12 @@ export default function ScorePage() {
 
     const v = spec ? clamp(value, spec.min, spec.max) : value;
 
-    setDraftForPour(activePourId, { [key]: v } as any);
+    setDraftForPour(activePourId, { [key]: v });
     scheduleSave(activePourId);
   };
 
   const setSliderValueFromTouch = (
-    key: keyof ScoreDraft,
+    key: ScoreCategoryKey,
     input: HTMLInputElement,
     clientX: number,
     min: number,
@@ -710,7 +719,7 @@ export default function ScorePage() {
   };
 
   const handleSliderTouchStart = (
-    key: keyof ScoreDraft,
+    key: ScoreCategoryKey,
     min: number,
     max: number,
     e: TouchEvent<HTMLInputElement>
@@ -807,7 +816,7 @@ export default function ScorePage() {
     if (activeCoreLocked || activeFinalLocked) return;
 
     const missingCore = CATEGORY_SPEC.filter(
-      (c) => c.group === "core" && (activeDraft as any)[c.key] === 0
+      (c) => c.group === "core" && activeDraft[c.key] === 0
     ).map((c) => c.label);
 
     setConfirmLock({
@@ -827,7 +836,7 @@ export default function ScorePage() {
     }
     if (activeFinalLocked) return;
 
-    const missingFinal = CATEGORY_SPEC.filter((c) => (activeDraft as any)[c.key] === 0).map(
+    const missingFinal = CATEGORY_SPEC.filter((c) => activeDraft[c.key] === 0).map(
       (c) => c.label
     );
 
@@ -941,7 +950,7 @@ export default function ScorePage() {
               {activePourId && (
                 <div className="mt-2 flex items-center gap-1.5">
                   {CATEGORY_SPEC.filter((c) => c.group === "core").map((c) => {
-                    const val = (activeDraft as any)[c.key] as number;
+                    const val = activeDraft[c.key];
                     return (
                       <div
                         key={c.key}
@@ -954,7 +963,7 @@ export default function ScorePage() {
                     );
                   })}
                   <span className="text-xs text-zinc-400 ml-1">
-                    {CATEGORY_SPEC.filter((c) => c.group === "core" && (activeDraft as any)[c.key] > 0).length}/8 scored
+                    {CATEGORY_SPEC.filter((c) => c.group === "core" && activeDraft[c.key] > 0).length}/8 scored
                   </span>
                 </div>
               )}
@@ -1135,7 +1144,7 @@ export default function ScorePage() {
 
           <div className="mt-5 space-y-5">
             {CATEGORY_SPEC.map((c) => {
-              const val = (activeDraft as any)[c.key] as number;
+              const val = activeDraft[c.key];
 
               const isCore = c.group === "core";
               const isRevealField = c.group === "reveal";
@@ -1193,9 +1202,9 @@ export default function ScorePage() {
                         value={val}
                         onChange={(e) => {
                           if (activeSliderTouch.current) return;
-                          setSliderValue(c.key as any, Number(e.target.value));
+                          setSliderValue(c.key, Number(e.target.value));
                         }}
-                        onTouchStart={(e) => handleSliderTouchStart(c.key as any, c.min, c.max, e)}
+                        onTouchStart={(e) => handleSliderTouchStart(c.key, c.min, c.max, e)}
                         onTouchMove={handleSliderTouchMove}
                         onTouchEnd={handleSliderTouchEnd}
                         onTouchCancel={() => {
