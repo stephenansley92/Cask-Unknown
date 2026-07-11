@@ -14,6 +14,7 @@ import {
   makeEmptyDraft,
   type ScoreDraft,
 } from "@/lib/scoring/categories";
+import { createScoreAutosave, type ScoreAutosave } from "@/lib/scoring/autosave";
 
 type SessionRow = {
   id: string;
@@ -75,6 +76,8 @@ type SliderTouchState = {
   canceled: boolean;
 };
 
+type LockExtra = { lockCore?: boolean; lockFinal?: boolean };
+
 function storageKey(sessionId: string) {
   return `cask_unknown_participant_${sessionId}`;
 }
@@ -111,12 +114,27 @@ export default function ScorePage() {
   const [prevTotal, setPrevTotal] = useState<number>(0);
   const [totalKey, setTotalKey] = useState<number>(0);
   const saveHintTimer = useRef<number | null>(null);
-  const saveDebounceTimer = useRef<number | null>(null);
   const scrollLockTimer = useRef<number | null>(null);
   const activeSliderTouch = useRef<SliderTouchState | null>(null);
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
   const coreLockedByPourRef = useRef<Record<string, boolean>>({});
   const finalLockedByPourRef = useRef<Record<string, boolean>>({});
+
+  // The autosave engine calls through this ref so a debounced save always
+  // runs the latest render's save implementation instead of a stale closure.
+  const performSaveRef = useRef<
+    (pourId: string, draft: ScoreDraft, extra?: LockExtra) => Promise<void>
+  >(async () => {});
+  const autosaveRef = useRef<ScoreAutosave<ScoreDraft, LockExtra> | null>(null);
+  const getAutosave = () => {
+    if (autosaveRef.current == null) {
+      autosaveRef.current = createScoreAutosave<ScoreDraft, LockExtra>({
+        debounceMs: 500,
+        save: (pourId, draft, extra) => performSaveRef.current(pourId, draft, extra),
+      });
+    }
+    return autosaveRef.current;
+  };
 
   const joinUrl = useMemo(() => (sessionId ? `/join/${sessionId}` : "/"), [sessionId]);
 
@@ -224,10 +242,13 @@ export default function ScorePage() {
   };
 
   const setDraftForPour = (pourId: string, patch: Partial<ScoreDraft>) => {
-    setDraftByPour((prev) => {
-      const existing = prev[pourId] ?? makeEmptyDraft();
-      return { ...prev, [pourId]: { ...existing, ...patch } };
-    });
+    // The autosave engine's registry is the source of truth for what gets
+    // saved; React state mirrors it for rendering.
+    const autosave = getAutosave();
+    const existing = autosave.getDraft(pourId) ?? makeEmptyDraft();
+    const nextDraft = { ...existing, ...patch };
+    autosave.setDraft(pourId, nextDraft);
+    setDraftByPour((prev) => ({ ...prev, [pourId]: nextDraft }));
   };
 
   const applyScoreRow = (row: ScoreRow) => {
@@ -302,14 +323,12 @@ export default function ScorePage() {
     }
   };
 
-  const upsertPour = async (
-    pourId: string,
-    extra?: { lockCore?: boolean; lockFinal?: boolean }
-  ) => {
-    if (!sessionId || !participant) return;
-    const d = (draftByPour[pourId] ?? makeEmptyDraft()) as ScoreDraft;
+  // Re-assigned every render so debounced saves use fresh state and props.
+  useEffect(() => {
+    performSaveRef.current = async (pourId, d, extra) => {
+      if (!sessionId || !participant) return;
 
-    const payload: any = {
+      const payload: any = {
       session_id: sessionId,
       pour_id: pourId,
       participant_id: participant.id,
@@ -400,15 +419,12 @@ export default function ScorePage() {
     } else {
       showHint("Saved ✓");
     }
-  };
+    };
+  });
 
-  const scheduleSave = (pourId: string) => {
-    if (saveDebounceTimer.current) window.clearTimeout(saveDebounceTimer.current);
-    saveDebounceTimer.current = window.setTimeout(() => {
-      upsertPour(pourId);
-      saveDebounceTimer.current = null;
-    }, 500);
-  };
+  const upsertPour = (pourId: string, extra?: LockExtra) => getAutosave().saveNow(pourId, extra);
+
+  const scheduleSave = (pourId: string) => getAutosave().schedule(pourId);
 
   useEffect(() => {
     const run = async () => {
@@ -508,10 +524,30 @@ export default function ScorePage() {
 
     return () => {
       if (saveHintTimer.current) window.clearTimeout(saveHintTimer.current);
-      if (saveDebounceTimer.current) window.clearTimeout(saveDebounceTimer.current);
       if (scrollLockTimer.current) window.clearTimeout(scrollLockTimer.current);
+      // Persist pending edits instead of dropping them on navigation.
+      void autosaveRef.current?.flushAll();
     };
   }, [sessionId, router, joinUrl]);
+
+  // Flush pending saves when the tab is hidden or the page is being unloaded,
+  // so backgrounding the phone mid-slider doesn't lose the last change.
+  useEffect(() => {
+    const flushPending = () => {
+      void autosaveRef.current?.flushAll();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flushPending();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", flushPending);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", flushPending);
+    };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -585,6 +621,10 @@ export default function ScorePage() {
 
   const switchPour = async (pourId: string) => {
     if (!participant) return;
+    // Save any pending edits on the pour we're leaving before it loses focus.
+    if (activePourId && activePourId !== pourId) {
+      void getAutosave().flush(activePourId);
+    }
     setActivePourId(pourId);
     if (sessionId) {
       window.localStorage.setItem(activePourStorageKey(sessionId, participant.id), pourId);
@@ -770,11 +810,6 @@ export default function ScorePage() {
     const kind = confirmLock.kind;
     const pourId = activePourId;
     setConfirmLock(null);
-
-    if (saveDebounceTimer.current) {
-      window.clearTimeout(saveDebounceTimer.current);
-      saveDebounceTimer.current = null;
-    }
 
     if (kind === "core") {
       coreLockedByPourRef.current = { ...coreLockedByPourRef.current, [pourId]: true };
