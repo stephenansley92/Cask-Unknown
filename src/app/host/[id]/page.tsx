@@ -197,6 +197,18 @@ export default function HostPage() {
   useEffect(() => {
     if (!sessionId) return;
 
+    // Coalesce bursts of change events (every taster autosaving fires one
+    // per keystroke batch) into a single stats refresh per window instead of
+    // three queries per event.
+    let refreshTimer: number | null = null;
+    const scheduleStatsRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void refreshStats();
+      }, 400);
+    };
+
     const channel = supabase
       .channel(`host-live-${sessionId}`)
       .on(
@@ -210,27 +222,22 @@ export default function HostPage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "scores", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          await refreshStats();
-        }
+        scheduleStatsRefresh
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "participants", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          await refreshStats();
-        }
+        scheduleStatsRefresh
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pours", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          await refreshStats();
-        }
+        scheduleStatsRefresh
       )
       .subscribe();
 
     return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

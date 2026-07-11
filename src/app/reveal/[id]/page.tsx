@@ -316,27 +316,28 @@ export default function RevealPage() {
     setScores((scoreData || []) as ScoreRow[]);
   };
 
-  useEffect(() => {
-    const run = async () => {
-      try {
-        setLoading(true);
-        setError("");
+  const runLoad = async () => {
+    try {
+      setLoading(true);
+      setError("");
 
-        if (!sessionId) {
-          setError("Missing session id.");
-          setLoading(false);
-          return;
-        }
-
-        await loadAll(sessionId);
+      if (!sessionId) {
+        setError("Missing session id.");
         setLoading(false);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Unknown error.");
-        setLoading(false);
+        return;
       }
-    };
 
-    run();
+      await loadAll(sessionId);
+      setLoading(false);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Unknown error.");
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    runLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   useEffect(() => {
@@ -355,6 +356,61 @@ export default function RevealPage() {
   useEffect(() => {
     if (!sessionId) return;
 
+    // Coalesce bursts of change events (e.g. every taster autosaving during
+    // reveal-stage scoring) into one reload per table per window instead of
+    // one full reload per event.
+    const refreshTimers: Record<string, number> = {};
+    const scheduleRefresh = (kind: string, task: () => Promise<void>) => {
+      if (refreshTimers[kind]) window.clearTimeout(refreshTimers[kind]);
+      refreshTimers[kind] = window.setTimeout(() => {
+        delete refreshTimers[kind];
+        void task();
+      }, 400);
+    };
+
+    const reloadScores = async () => {
+      const { data, error: scoreErr } = await supabase
+        .from("scores")
+        .select(
+          "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes"
+        )
+        .eq("session_id", sessionId);
+
+      if (scoreErr) {
+        console.warn("Reveal scores sync failed:", scoreErr.message);
+      } else {
+        setScores((data || []) as ScoreRow[]);
+      }
+    };
+
+    const reloadPours = async () => {
+      const { data, error: poursErr } = await supabase
+        .from("pours")
+        .select("id,session_id,code,bottle_name,sort_order")
+        .eq("session_id", sessionId)
+        .order("sort_order", { ascending: true });
+
+      if (poursErr) {
+        console.warn("Reveal pours sync failed:", poursErr.message);
+      } else {
+        setPours((data || []) as PourRow[]);
+      }
+    };
+
+    const reloadParticipants = async () => {
+      const { data, error: partErr } = await supabase
+        .from("participants")
+        .select("id,session_id,display_name")
+        .eq("session_id", sessionId)
+        .order("created_at", { ascending: true });
+
+      if (partErr) {
+        console.warn("Reveal participants sync failed:", partErr.message);
+      } else {
+        setParticipants((data || []) as ParticipantRow[]);
+      }
+    };
+
     const channel = supabase
       .channel(`reveal-live-${sessionId}`)
       .on(
@@ -368,41 +424,27 @@ export default function RevealPage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "scores", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          const { data, error: scoreErr } = await supabase
-            .from("scores")
-            .select(
-              "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes"
-            )
-            .eq("session_id", sessionId);
-
-          if (scoreErr) {
-            console.warn("Reveal scores sync failed:", scoreErr.message);
-          } else {
-            setScores((data || []) as ScoreRow[]);
-          }
-        }
+        () => scheduleRefresh("scores", reloadScores)
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pours", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          const { data, error: poursErr } = await supabase
-            .from("pours")
-            .select("id,session_id,code,bottle_name,sort_order")
-            .eq("session_id", sessionId)
-            .order("sort_order", { ascending: true });
-
-          if (poursErr) {
-            console.warn("Reveal pours sync failed:", poursErr.message);
-          } else {
-            setPours((data || []) as PourRow[]);
-          }
-        }
+        () => scheduleRefresh("pours", reloadPours)
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "participants",
+          filter: `session_id=eq.${sessionId}`,
+        },
+        () => scheduleRefresh("participants", reloadParticipants)
       )
       .subscribe();
 
     return () => {
+      for (const timer of Object.values(refreshTimers)) window.clearTimeout(timer);
       supabase.removeChannel(channel);
     };
   }, [sessionId]);
@@ -886,6 +928,12 @@ export default function RevealPage() {
         <div className="max-w-lg w-full bg-zinc-950 border border-zinc-800 rounded-3xl p-6">
           <div className="text-2xl font-extrabold">Reveal Error</div>
           <div className="text-zinc-400 mt-2">{error}</div>
+          <button
+            onClick={() => void runLoad()}
+            className="mt-5 rounded-2xl bg-amber-500 px-5 py-3 font-semibold text-black hover:bg-amber-600"
+          >
+            Try Again
+          </button>
         </div>
       </main>
     );
@@ -914,6 +962,14 @@ export default function RevealPage() {
               ? "SOFT REVEAL is live — Packaging + Value scoring is open. BIG REVEAL is coming next."
               : "Once BIG REVEAL happens, bottle names + winners will appear here."}
           </div>
+
+          <button
+            onClick={() => void runLoad()}
+            disabled={refreshing}
+            className="mt-6 rounded-2xl border border-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+          >
+            Refresh
+          </button>
         </div>
       </main>
     );
