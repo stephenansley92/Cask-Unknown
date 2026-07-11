@@ -7,6 +7,7 @@ import { ConnectionBanner } from "@/components/connection-banner";
 import { Trophy, ChevronLeft, ChevronRight, SkipForward, RefreshCw, Download, Share2 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { useWakeLock } from "@/lib/use-wake-lock";
+import { getRevealSession } from "@/lib/session-api";
 
 type SessionRow = {
   id: string;
@@ -281,39 +282,13 @@ export default function RevealPage() {
   const [cinematicStep, setCinematicStep] = useState(0);
 
   const loadAll = async (id: string) => {
-    const { data: sess, error: sessErr } = await supabase
-      .from("sessions")
-      .select("id,title,is_blind,status,created_at")
-      .eq("id", id)
-      .single();
-    if (sessErr) throw sessErr;
+    const { data: snapshot, error: snapshotError } = await getRevealSession(supabase, id);
+    if (snapshotError || !snapshot) throw snapshotError || new Error("Session not found.");
 
-    const { data: poursData, error: poursErr } = await supabase
-      .from("pours")
-      .select("id,session_id,code,bottle_name,sort_order")
-      .eq("session_id", id)
-      .order("sort_order", { ascending: true });
-    if (poursErr) throw poursErr;
-
-    const { data: partData, error: partErr } = await supabase
-      .from("participants")
-      .select("id,session_id,display_name")
-      .eq("session_id", id)
-      .order("created_at", { ascending: true });
-    if (partErr) throw partErr;
-
-    const { data: scoreData, error: scoreErr } = await supabase
-      .from("scores")
-      .select(
-        "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes"
-      )
-      .eq("session_id", id);
-    if (scoreErr) throw scoreErr;
-
-    setSession(sess as SessionRow);
-    setPours((poursData || []) as PourRow[]);
-    setParticipants((partData || []) as ParticipantRow[]);
-    setScores((scoreData || []) as ScoreRow[]);
+    setSession(snapshot.session as SessionRow);
+    setPours(snapshot.pours as PourRow[]);
+    setParticipants(snapshot.participants as ParticipantRow[]);
+    setScores(snapshot.scores as ScoreRow[]);
   };
 
   const runLoad = async () => {
@@ -368,46 +343,11 @@ export default function RevealPage() {
       }, 400);
     };
 
-    const reloadScores = async () => {
-      const { data, error: scoreErr } = await supabase
-        .from("scores")
-        .select(
-          "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes"
-        )
-        .eq("session_id", sessionId);
-
-      if (scoreErr) {
-        console.warn("Reveal scores sync failed:", scoreErr.message);
-      } else {
-        setScores((data || []) as ScoreRow[]);
-      }
-    };
-
-    const reloadPours = async () => {
-      const { data, error: poursErr } = await supabase
-        .from("pours")
-        .select("id,session_id,code,bottle_name,sort_order")
-        .eq("session_id", sessionId)
-        .order("sort_order", { ascending: true });
-
-      if (poursErr) {
-        console.warn("Reveal pours sync failed:", poursErr.message);
-      } else {
-        setPours((data || []) as PourRow[]);
-      }
-    };
-
-    const reloadParticipants = async () => {
-      const { data, error: partErr } = await supabase
-        .from("participants")
-        .select("id,session_id,display_name")
-        .eq("session_id", sessionId)
-        .order("created_at", { ascending: true });
-
-      if (partErr) {
-        console.warn("Reveal participants sync failed:", partErr.message);
-      } else {
-        setParticipants((data || []) as ParticipantRow[]);
+    const reloadAll = async () => {
+      try {
+        await loadAll(sessionId);
+      } catch (syncError) {
+        console.warn("Reveal sync failed:", syncError);
       }
     };
 
@@ -416,20 +356,17 @@ export default function RevealPage() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sessionId}` },
-        (payload: { new?: { status?: string | null } }) => {
-          const newStatus = payload.new?.status || "";
-          setSession((prev) => (prev ? { ...prev, status: newStatus } : prev));
-        }
+        () => scheduleRefresh("session", reloadAll)
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "scores", filter: `session_id=eq.${sessionId}` },
-        () => scheduleRefresh("scores", reloadScores)
+        () => scheduleRefresh("scores", reloadAll)
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pours", filter: `session_id=eq.${sessionId}` },
-        () => scheduleRefresh("pours", reloadPours)
+        () => scheduleRefresh("pours", reloadAll)
       )
       .on(
         "postgres_changes",
@@ -439,7 +376,7 @@ export default function RevealPage() {
           table: "participants",
           filter: `session_id=eq.${sessionId}`,
         },
-        () => scheduleRefresh("participants", reloadParticipants)
+        () => scheduleRefresh("participants", reloadAll)
       )
       .subscribe();
 

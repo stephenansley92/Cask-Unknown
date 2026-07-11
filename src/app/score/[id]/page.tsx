@@ -15,6 +15,7 @@ import {
   type ScoreDraft,
 } from "@/lib/scoring/categories";
 import { createScoreAutosave, type ScoreAutosave } from "@/lib/scoring/autosave";
+import { getParticipantSession, saveParticipantScore } from "@/lib/session-api";
 import {
   errorMessage,
   logEvent,
@@ -84,18 +85,6 @@ type SliderTouchState = {
 
 type LockExtra = { lockCore?: boolean; lockFinal?: boolean };
 type ScoreCategoryKey = (typeof CATEGORY_SPEC)[number]["key"];
-type ScoreWritePayload = Pick<ScoreDraft, ScoreCategoryKey> & {
-  session_id: string;
-  pour_id: string;
-  participant_id: string;
-  total: number;
-  notes: string;
-  core_locked?: boolean;
-  core_locked_at?: string;
-  final_locked?: boolean;
-  final_locked_at?: string;
-};
-
 function storageKey(sessionId: string) {
   return `cask_unknown_participant_${sessionId}`;
 }
@@ -136,6 +125,7 @@ export default function ScorePage() {
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
   const coreLockedByPourRef = useRef<Record<string, boolean>>({});
   const finalLockedByPourRef = useRef<Record<string, boolean>>({});
+  const participantAccessTokenRef = useRef("");
 
   // The autosave engine calls through this ref so a debounced save always
   // runs the latest render's save implementation instead of a stale closure.
@@ -286,52 +276,22 @@ export default function ScorePage() {
     setFinalLockedByPour((prev) => ({ ...prev, [row.pour_id]: !!row.final_locked }));
   };
 
-  const loadScoresForParticipant = async (participantId: string, poursList: PourRow[]) => {
-    const pourIds = poursList.map((p) => p.id);
-    if (!pourIds.length) return;
-
-    const { data, error: sErr } = await supabase
-      .from("scores")
-      .select(
-        "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes,core_locked,core_locked_at,final_locked,final_locked_at,created_at"
-      )
-      .eq("participant_id", participantId)
-      .in("pour_id", pourIds);
-
-    if (sErr) throw sErr;
-
-    const rows = (data || []) as ScoreRow[];
-    const rowByPour = new Map(rows.map((row) => [row.pour_id, row]));
-
-    poursList.forEach((pour) => {
-      const row = rowByPour.get(pour.id);
-      if (row) {
-        applyScoreRow(row);
-        return;
-      }
-
-      setDraftForPour(pour.id, makeEmptyDraft());
-      setCoreLockedByPour((prev) => ({ ...prev, [pour.id]: false }));
-      setFinalLockedByPour((prev) => ({ ...prev, [pour.id]: false }));
-    });
-  };
-
   const loadScoreForPour = async (pourId: string, participantId: string) => {
-    const { data, error: sErr } = await supabase
-      .from("scores")
-      .select(
-        "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes,core_locked,core_locked_at,final_locked,final_locked_at,created_at"
-      )
-      .eq("pour_id", pourId)
-      .eq("participant_id", participantId)
-      .maybeSingle();
+    if (!sessionId || !participantAccessTokenRef.current) return;
+    const { data: snapshot, error: sErr } = await getParticipantSession(
+      supabase,
+      sessionId,
+      participantId,
+      participantAccessTokenRef.current,
+    );
 
     if (sErr) {
       throw sErr;
     }
 
-    if (data) {
-      applyScoreRow(data as ScoreRow);
+    const row = snapshot?.scores.find((score) => score.pour_id === pourId);
+    if (row) {
+      applyScoreRow(row as ScoreRow);
     } else {
       setDraftForPour(pourId, makeEmptyDraft());
       setCoreLockedByPour((prev) => ({ ...prev, [pourId]: false }));
@@ -344,65 +304,32 @@ export default function ScorePage() {
     performSaveRef.current = async (pourId, d, extra) => {
       if (!sessionId || !participant) return;
 
-      const payload: ScoreWritePayload = {
-      session_id: sessionId,
-      pour_id: pourId,
-      participant_id: participant.id,
-
-      nose: d.nose,
-      flavor: d.flavor,
-      mouthfeel: d.mouthfeel,
-      complexity: d.complexity,
-      balance: d.balance,
-      finish: d.finish,
-      uniqueness: d.uniqueness,
-      drinkability: d.drinkability,
-      packaging: d.packaging,
-      value: d.value,
-
-      total: computeTotal(d),
-      notes: d.notes ?? "",
-      ...(extra?.lockCore ? { core_locked_at: new Date().toISOString() } : {}),
-      ...(extra?.lockFinal ? { final_locked_at: new Date().toISOString() } : {}),
-    };
-
-    if (extra?.lockCore) {
-      payload.core_locked = true;
-    }
-
-    if (extra?.lockFinal) {
-      payload.final_locked = true;
-      if (coreLockedByPourRef.current[pourId]) {
-        payload.core_locked = true;
-      }
-    }
+      const score = {
+        nose: d.nose,
+        flavor: d.flavor,
+        mouthfeel: d.mouthfeel,
+        complexity: d.complexity,
+        balance: d.balance,
+        finish: d.finish,
+        uniqueness: d.uniqueness,
+        drinkability: d.drinkability,
+        packaging: d.packaging,
+        value: d.value,
+        notes: d.notes ?? "",
+      };
 
     showHint(extra?.lockFinal ? "Locking final…" : extra?.lockCore ? "Locking…" : "Saving…");
     setSaveError("");
 
-    let uErr: { message: string } | null = null;
-
-    if (extra?.lockCore || extra?.lockFinal) {
-      const result = await supabase
-        .from("scores")
-        .upsert(payload, { onConflict: "pour_id,participant_id" });
-      uErr = result.error;
-    } else {
-      const updateResult = await supabase
-        .from("scores")
-        .update(payload)
-        .eq("pour_id", pourId)
-        .eq("participant_id", participant.id)
-        .select("id")
-        .maybeSingle();
-
-      if (updateResult.error) {
-        uErr = updateResult.error;
-      } else if (!updateResult.data) {
-        const insertResult = await supabase.from("scores").insert(payload);
-        uErr = insertResult.error;
-      }
-    }
+    const { error: uErr } = await saveParticipantScore(supabase, {
+      sessionId,
+      pourId,
+      participantId: participant.id,
+      accessToken: participantAccessTokenRef.current,
+      score,
+      lockCore: extra?.lockCore,
+      lockFinal: extra?.lockFinal,
+    });
 
     if (uErr) {
       const ref = newCorrelationId();
@@ -454,46 +381,6 @@ export default function ScorePage() {
           return;
         }
 
-        const { data: sess, error: sessErr } = await supabase
-          .from("sessions")
-          .select("id,title,is_blind,status")
-          .eq("id", sessionId)
-          .single();
-
-        if (sessErr) {
-          const ref = newCorrelationId();
-          logEvent("error", "score.load_session_failed", {
-            ref,
-            sessionId,
-            message: sessErr.message,
-          });
-          setError(userFacingError("Could not load this session.", ref));
-          setLoading(false);
-          return;
-        }
-        setSession(sess as SessionRow);
-
-        const { data: poursData, error: poursErr } = await supabase
-          .from("pours")
-          .select("id,session_id,code,sort_order")
-          .eq("session_id", sessionId)
-          .order("sort_order", { ascending: true });
-
-        if (poursErr) {
-          const ref = newCorrelationId();
-          logEvent("error", "score.load_pours_failed", {
-            ref,
-            sessionId,
-            message: poursErr.message,
-          });
-          setError(userFacingError("Could not load the pours for this session.", ref));
-          setLoading(false);
-          return;
-        }
-
-        const poursList = (poursData || []) as PourRow[];
-        setPours(poursList);
-
         const raw =
           typeof window !== "undefined" ? window.localStorage.getItem(storageKey(sessionId)) : null;
         if (!raw) {
@@ -501,7 +388,7 @@ export default function ScorePage() {
           return;
         }
 
-        let parsed: { participantId?: string } | null = null;
+        let parsed: { participantId?: string; accessToken?: string } | null = null;
         try {
           parsed = JSON.parse(raw);
         } catch {
@@ -514,22 +401,37 @@ export default function ScorePage() {
           return;
         }
 
-        const { data: p, error: pErr } = await supabase
-          .from("participants")
-          .select("id,session_id,display_name")
-          .eq("id", participantId)
-          .single();
+        const accessToken = parsed?.accessToken || participantId;
+        const { data: snapshot, error: snapshotError } = await getParticipantSession(
+          supabase,
+          sessionId,
+          participantId,
+          accessToken,
+        );
 
-        if (pErr || !p || p.session_id !== sessionId) {
+        if (snapshotError || !snapshot) {
           window.localStorage.removeItem(storageKey(sessionId));
           router.push(joinUrl);
           return;
         }
 
-        const participantRow = p as ParticipantRow;
+        participantAccessTokenRef.current = accessToken;
+        const participantRow = snapshot.participant as ParticipantRow;
+        const poursList = snapshot.pours as PourRow[];
+        setSession(snapshot.session as SessionRow);
+        setPours(poursList);
         setParticipant(participantRow);
-
-        await loadScoresForParticipant(participantRow.id, poursList);
+        const rowByPour = new Map(snapshot.scores.map((row) => [row.pour_id, row]));
+        poursList.forEach((pour) => {
+          const row = rowByPour.get(pour.id);
+          if (row) {
+            applyScoreRow(row as ScoreRow);
+          } else {
+            setDraftForPour(pour.id, makeEmptyDraft());
+            setCoreLockedByPour((prev) => ({ ...prev, [pour.id]: false }));
+            setFinalLockedByPour((prev) => ({ ...prev, [pour.id]: false }));
+          }
+        });
 
         const savedPourId =
           typeof window !== "undefined"

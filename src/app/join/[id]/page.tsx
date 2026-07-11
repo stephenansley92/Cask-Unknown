@@ -10,6 +10,11 @@ import {
   getProfileOptions,
   saveProfileOption,
 } from "@/lib/profiles";
+import {
+  getPublicSession,
+  joinSession,
+  resumeSessionParticipant,
+} from "@/lib/session-api";
 
 type SessionRow = {
   id: string;
@@ -24,6 +29,7 @@ type ParticipantRow = {
   session_id: string;
   display_name: string;
   user_id?: string | null;
+  access_token: string;
   created_at?: string;
 };
 
@@ -48,7 +54,6 @@ export default function JoinPage() {
   const [profileOptions, setProfileOptions] = useState<string[]>([]);
   const [lockedProfileName, setLockedProfileName] = useState("");
   const [authUserId, setAuthUserId] = useState("");
-  const [isOwner, setIsOwner] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [existingParticipant, setExistingParticipant] =
@@ -76,7 +81,6 @@ export default function JoinPage() {
 
         const ownerMatch =
           (user?.email || "").trim().toLowerCase() === OWNER_EMAIL;
-        setIsOwner(ownerMatch);
         setAuthUserId(user?.id || "");
 
         let enforcedProfileName = "";
@@ -116,11 +120,7 @@ export default function JoinPage() {
           return;
         }
 
-        const { data: sess, error: sessErr } = await supabase
-          .from("sessions")
-          .select("id,title,is_blind,status,created_at")
-          .eq("id", sessionId)
-          .single();
+        const { data: sess, error: sessErr } = await getPublicSession(supabase, sessionId);
 
         if (sessErr) {
           setError(sessErr.message);
@@ -150,7 +150,7 @@ export default function JoinPage() {
           return;
         }
 
-        let parsed: { participantId?: string; displayName?: string } | null =
+        let parsed: { participantId?: string; accessToken?: string; displayName?: string } | null =
           null;
         try {
           parsed = JSON.parse(raw);
@@ -164,11 +164,12 @@ export default function JoinPage() {
           return;
         }
 
-        const { data: p, error: pErr } = await supabase
-          .from("participants")
-          .select("id,session_id,display_name,user_id,created_at")
-          .eq("id", participantId)
-          .single();
+        const { data: p, error: pErr } = await resumeSessionParticipant(
+          user ? authClient : supabase,
+          sessionId,
+          participantId,
+          parsed?.accessToken || participantId,
+        );
 
         if (!pErr && p && (p as ParticipantRow).session_id === sessionId) {
           const row = p as ParticipantRow;
@@ -235,103 +236,13 @@ export default function JoinPage() {
       // Use an authenticated client so RLS policies can verify auth.uid() = user_id
       const dbClient = authUserId ? createSupabaseBrowserClient() : supabase;
 
-      let row: ParticipantRow | null = null;
-
-      if (authUserId && !isOwner) {
-        const { data: ownedParticipant, error: ownedParticipantError } =
-          await dbClient
-            .from("participants")
-            .select("id,session_id,display_name,user_id,created_at")
-            .eq("session_id", sessionId)
-            .eq("user_id", authUserId)
-            .maybeSingle();
-
-        if (ownedParticipantError) {
-          setError(ownedParticipantError.message);
-          setSubmitting(false);
-          return;
-        }
-
-        row = (ownedParticipant as ParticipantRow | null) || null;
-
-        if (!row) {
-          const { data: legacyParticipant, error: legacyParticipantError } =
-            await dbClient
-              .from("participants")
-              .select("id,session_id,display_name,user_id,created_at")
-              .eq("session_id", sessionId)
-              .eq("display_name", clean)
-              .is("user_id", null)
-              .maybeSingle();
-
-          if (legacyParticipantError) {
-            setError(legacyParticipantError.message);
-            setSubmitting(false);
-            return;
-          }
-
-          if (legacyParticipant) {
-            const { data: claimedParticipant, error: claimError } = await dbClient
-              .from("participants")
-              .update({ user_id: authUserId })
-              .eq("id", legacyParticipant.id as string)
-              .select("id,session_id,display_name,user_id,created_at")
-              .single();
-
-            if (claimError) {
-              setError(claimError.message);
-              setSubmitting(false);
-              return;
-            }
-
-            row = claimedParticipant as ParticipantRow;
-          }
-        }
-      } else {
-        const { data: existing, error: existingErr } = await dbClient
-          .from("participants")
-          .select("id,session_id,display_name,user_id,created_at")
-          .eq("session_id", sessionId)
-          .eq("display_name", clean)
-          .maybeSingle();
-
-        if (existingErr) {
-          setError(existingErr.message);
-          setSubmitting(false);
-          return;
-        }
-
-        row = (existing as ParticipantRow | null) || null;
+      const { data: joined, error: joinError } = await joinSession(dbClient, sessionId, clean);
+      if (joinError || !joined) {
+        setError(joinError?.message || "Could not join this session.");
+        setSubmitting(false);
+        return;
       }
-
-      if (!row) {
-        const insertPayload: {
-          session_id: string;
-          display_name: string;
-          user_id?: string;
-        } = {
-          session_id: sessionId,
-          display_name: clean,
-        };
-
-        if (authUserId && !isOwner) {
-          insertPayload.user_id = authUserId;
-        }
-
-        const { data: inserted, error: insErr } = await dbClient
-          .from("participants")
-          .insert(insertPayload)
-          .select("id,session_id,display_name,user_id,created_at")
-          .single();
-
-        if (insErr) {
-          setError(insErr.message);
-          setSubmitting(false);
-          return;
-        }
-
-        row = inserted as ParticipantRow;
-      }
+      const row = joined as ParticipantRow;
 
       saveProfileOption(clean);
 
@@ -340,6 +251,7 @@ export default function JoinPage() {
           storageKey(sessionId),
           JSON.stringify({
             participantId: row.id,
+            accessToken: row.access_token,
             displayName: row.display_name,
           })
         );

@@ -22,7 +22,10 @@ as $$
         or (
           s.host_user_id is null
           and p_legacy_host_key is not null
-          and s.host_key = p_legacy_host_key
+          and (
+            s.host_key = p_legacy_host_key
+            or s.host_key = 'sha256:' || encode(extensions.digest(p_legacy_host_key, 'sha256'), 'hex')
+          )
         )
       )
   );
@@ -51,6 +54,126 @@ $$;
 
 revoke all on function public.get_public_session(uuid) from public;
 grant execute on function public.get_public_session(uuid) to anon, authenticated;
+
+create or replace function public.get_reveal_session(p_session_id uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'session', jsonb_build_object(
+      'id', s.id,
+      'title', s.title,
+      'is_blind', s.is_blind,
+      'status', s.status,
+      'created_at', s.created_at
+    ),
+    'pours', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', po.id,
+          'session_id', po.session_id,
+          'code', po.code,
+          'bottle_name', case
+            when not s.is_blind or s.status = 'revealed' then po.bottle_name
+            else null
+          end,
+          'sort_order', po.sort_order
+        ) order by po.sort_order
+      )
+      from public.pours po
+      where po.session_id = s.id
+    ), '[]'::jsonb),
+    'participants', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', case
+            when s.status = 'revealed' then p.id::text
+            else encode(extensions.digest(p.id::text, 'sha256'), 'hex')
+          end,
+          'session_id', p.session_id,
+          'display_name', case when s.status = 'revealed' then p.display_name else 'Taster' end
+        ) order by p.created_at
+      )
+      from public.participants p
+      where p.session_id = s.id
+    ), '[]'::jsonb),
+    'scores', case
+      when s.status = 'revealed' then coalesce((
+        select jsonb_agg(to_jsonb(sc) order by sc.created_at)
+        from public.scores sc
+        where sc.session_id = s.id
+      ), '[]'::jsonb)
+      else '[]'::jsonb
+    end
+  )
+  from public.sessions s
+  where s.id = p_session_id;
+$$;
+
+revoke all on function public.get_reveal_session(uuid) from public;
+grant execute on function public.get_reveal_session(uuid) to anon, authenticated;
+
+create or replace function public.create_hosted_session(
+  p_title text,
+  p_is_blind boolean default true
+)
+returns table (id uuid, host_key text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_title text := btrim(p_title);
+  v_host_key text := encode(extensions.gen_random_bytes(32), 'hex');
+begin
+  if v_user_id is null then
+    raise exception using errcode = '42501', message = 'Authentication required.';
+  end if;
+
+  if v_title = '' or char_length(v_title) > 120 then
+    raise exception using errcode = '22023', message = 'Title must be between 1 and 120 characters.';
+  end if;
+
+  return query
+  insert into public.sessions (title, host_key, is_blind, status, host_user_id)
+  values (
+    v_title,
+    'sha256:' || encode(extensions.digest(v_host_key, 'sha256'), 'hex'),
+    p_is_blind,
+    'setup',
+    v_user_id
+  )
+  returning public.sessions.id, v_host_key;
+end;
+$$;
+
+revoke all on function public.create_hosted_session(text, boolean) from public;
+grant execute on function public.create_hosted_session(text, boolean) to authenticated;
+
+create or replace function public.list_hosted_sessions()
+returns table (
+  id uuid,
+  title text,
+  status text,
+  created_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select s.id, s.title, s.status, s.created_at
+  from public.sessions s
+  where s.host_user_id = auth.uid()
+  order by s.created_at desc;
+$$;
+
+revoke all on function public.list_hosted_sessions() from public;
+grant execute on function public.list_hosted_sessions() to authenticated;
 
 create or replace function public.resume_session_participant(
   p_session_id uuid,

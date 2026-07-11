@@ -8,12 +8,12 @@ import { QRCodeCanvas } from "qrcode.react";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { errorMessage } from "@/lib/log";
+import { getHostSession, setHostSessionStatus, unlockHostScores } from "@/lib/session-api";
 import { Lock, Users, Scan, Copy, Wine, Unlock, Trophy, Star } from "lucide-react";
 
 type SessionRow = {
   id: string;
   title: string;
-  host_key: string;
   is_blind: boolean;
   status: string; // setup | scoring | reveal_ready | revealed | closed
   created_at?: string;
@@ -71,34 +71,21 @@ export default function HostPage() {
     try {
       setStatsLoading(true);
 
-      const { data: poursData, error: poursErr } = await supabase
-        .from("pours")
-        .select("id,session_id")
-        .eq("session_id", sessionId);
+      const authClient = createSupabaseBrowserClient();
+      const { data: snapshot, error: snapshotError } = await getHostSession(
+        authClient,
+        sessionId,
+        hostKey,
+      );
+      if (snapshotError || !snapshot) throw snapshotError || new Error("Host session not found.");
 
-      if (poursErr) throw poursErr;
-
-      const { data: partsData, error: partsErr } = await supabase
-        .from("participants")
-        .select("id,session_id")
-        .eq("session_id", sessionId);
-
-      if (partsErr) throw partsErr;
-
-      const pours = (poursData || []) as PourRow[];
-      const participants = (partsData || []) as ParticipantRow[];
+      const pours = snapshot.pours as PourRow[];
+      const participants = snapshot.participants as ParticipantRow[];
 
       const expected = pours.length * participants.length;
 
       // Pull existing score locks
-      const { data: locksData, error: locksErr } = await supabase
-        .from("scores")
-        .select("pour_id,participant_id,core_locked,final_locked")
-        .eq("session_id", sessionId);
-
-      if (locksErr) throw locksErr;
-
-      const locks = (locksData || []) as ScoreLockRow[];
+      const locks = snapshot.scores as ScoreLockRow[];
 
       // Build a quick lookup: `${participantId}__${pourId}` -> lock flags
       const lockMap: Record<string, { core: boolean; final: boolean }> = {};
@@ -144,31 +131,17 @@ export default function HostPage() {
           setLoading(false);
           return;
         }
-        if (!hostKey) {
-          setError("Missing host key (this link is host-only).");
+        const authClient = createSupabaseBrowserClient();
+        const { data: snapshot, error } = await getHostSession(authClient, sessionId, hostKey);
+
+        if (error || !snapshot) {
+          setError(error?.message || "Host session not found.");
           setLoading(false);
           return;
         }
 
-        const { data, error } = await supabase
-          .from("sessions")
-          .select("id,title,host_key,is_blind,status,created_at")
-          .eq("id", sessionId)
-          .single();
-
-        if (error) {
-          setError(error.message);
-          setLoading(false);
-          return;
-        }
-
-        if (!data || data.host_key !== hostKey) {
-          setError("Host key mismatch. This link is not authorized.");
-          setLoading(false);
-          return;
-        }
-
-        setSession(data as SessionRow);
+        const data = snapshot.session as SessionRow;
+        setSession(data);
         setLoading(false);
 
         // Persist to localStorage so My Sessions page can list it
@@ -273,12 +246,12 @@ export default function HostPage() {
       // the cookie-based auth client (the host signed in to create the session).
       // The plain anon client would be silently rejected (0 rows updated).
       const dbClient = createSupabaseBrowserClient();
-      const { data: updated, error } = await dbClient
-        .from("sessions")
-        .update({ status: newStatus })
-        .eq("id", sessionId)
-        .select("id")
-        .maybeSingle();
+      const { data: updated, error } = await setHostSessionStatus(
+        dbClient,
+        sessionId,
+        newStatus,
+        hostKey,
+      );
 
       if (error) {
         setError(error.message);
@@ -320,15 +293,8 @@ export default function HostPage() {
     try {
       setBusy(true);
 
-      const { error } = await supabase
-        .from("scores")
-        .update({
-          core_locked: false,
-          core_locked_at: null,
-          final_locked: false,
-          final_locked_at: null,
-        })
-        .eq("session_id", sessionId);
+      const dbClient = createSupabaseBrowserClient();
+      const { error } = await unlockHostScores(dbClient, sessionId, hostKey);
 
       if (error) {
         setError(error.message);

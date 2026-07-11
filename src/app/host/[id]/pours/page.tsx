@@ -5,6 +5,12 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
+  deleteHostPour,
+  getHostSession,
+  upsertHostPours,
+  type SessionPour,
+} from "@/lib/session-api";
+import {
   buildWhiskeyIdentityKey,
   buildWhiskeyInsertPayload,
   buildWhiskeySearchText,
@@ -18,7 +24,6 @@ import {
 type SessionRow = {
   id: string;
   title: string;
-  host_key: string;
   is_blind: boolean;
   status: string;
 };
@@ -30,6 +35,7 @@ type PourRaw = {
   bottle_name: string | null;
   whiskey_id?: string | null;
   whiskey?: { name?: string | null } | { name?: string | null }[] | null;
+  whiskey_name?: string | null;
   sort_order: number;
 };
 
@@ -74,7 +80,7 @@ function mapPourRow(raw: PourRaw): PourRow {
       typeof raw.whiskey_id === "string" && raw.whiskey_id.trim()
         ? raw.whiskey_id
         : null,
-    whiskey_name: extractWhiskeyName(raw.whiskey),
+    whiskey_name: raw.whiskey_name?.trim() || extractWhiskeyName(raw.whiskey),
     sort_order: Number(raw.sort_order ?? 0),
   };
 }
@@ -173,34 +179,6 @@ export default function HostPoursPage() {
     setWhiskeys([]);
   };
 
-  const loadPours = async () => {
-    if (!sessionId) return [];
-
-    const selectAttempts = [
-      "id,session_id,code,bottle_name,whiskey_id,whiskey:whiskeys(name),sort_order",
-      "id,session_id,code,bottle_name,whiskey_id,sort_order",
-      "id,session_id,code,bottle_name,sort_order",
-    ];
-
-    let lastError: unknown = null;
-    for (const selectColumns of selectAttempts) {
-      const { data, error: poursError } = await supabase
-        .from("pours")
-        .select(selectColumns)
-        .eq("session_id", sessionId)
-        .order("sort_order", { ascending: true });
-
-      if (poursError) {
-        lastError = poursError;
-        continue;
-      }
-
-      return ((data || []) as unknown as PourRaw[]).map(mapPourRow);
-    }
-
-    throw lastError;
-  };
-
   const insertPours = async (
     rows: Array<{
       session_id: string;
@@ -210,30 +188,9 @@ export default function HostPoursPage() {
       sort_order: number;
     }>
   ) => {
-    const withWhiskeyId = await supabase
-      .from("pours")
-      .insert(rows)
-      .select("id,session_id,code,bottle_name,whiskey_id,whiskey:whiskeys(name),sort_order");
-
-    if (!withWhiskeyId.error) {
-      return ((withWhiskeyId.data || []) as unknown as PourRaw[]).map(mapPourRow);
-    }
-
-    const rowsWithoutWhiskeyId = rows.map((row) =>
-      Object.fromEntries(
-        Object.entries(row).filter(([key]) => key !== "whiskey_id")
-      )
-    );
-    const withoutWhiskeyId = await supabase
-      .from("pours")
-      .insert(rowsWithoutWhiskeyId)
-      .select("id,session_id,code,bottle_name,sort_order");
-
-    if (withoutWhiskeyId.error) {
-      throw withoutWhiskeyId.error;
-    }
-
-    return ((withoutWhiskeyId.data || []) as PourRaw[]).map(mapPourRow);
+    const { data, error } = await upsertHostPours(supabase, sessionId, rows, hostKey);
+    if (error) throw error;
+    return (data || []).map((row) => mapPourRow(row as PourRaw));
   };
 
   const loadAll = async () => {
@@ -242,32 +199,26 @@ export default function HostPoursPage() {
       setError("");
       setLibraryError("");
 
-      if (!sessionId || !hostKey) {
-        setError("Missing session id or host key.");
+      if (!sessionId) {
+        setError("Missing session id.");
         setLoading(false);
         return;
       }
 
-      const { data: sess, error: sessErr } = await supabase
-        .from("sessions")
-        .select("id,title,host_key,is_blind,status")
-        .eq("id", sessionId)
-        .single();
+      const { data: snapshot, error: sessErr } = await getHostSession(
+        supabase,
+        sessionId,
+        hostKey,
+      );
 
-      if (sessErr) {
-        setError(sessErr.message);
+      if (sessErr || !snapshot) {
+        setError(sessErr?.message || "Host session not found.");
         setLoading(false);
         return;
       }
 
-      if (!sess || sess.host_key !== hostKey) {
-        setError("Host key mismatch. This link is not authorized.");
-        setLoading(false);
-        return;
-      }
-
-      setSession(sess as SessionRow);
-      const loaded = await loadPours();
+      setSession(snapshot.session as SessionRow);
+      const loaded = (snapshot.pours as SessionPour[]).map((row) => mapPourRow(row as PourRaw));
       const sorted = loaded.sort((a, b) => a.sort_order - b.sort_order);
       setPours(sorted);
       setQuickCount(Math.max(4, sorted.length));
@@ -328,23 +279,15 @@ export default function HostPoursPage() {
   };
 
   const savePour = async (row: PourRow) => {
-    const withWhiskeyUpdate = await supabase
-      .from("pours")
-      .update({ bottle_name: row.bottle_name, whiskey_id: row.whiskey_id })
-      .eq("id", row.id);
+    const { error: updateError } = await upsertHostPours(
+      supabase,
+      sessionId,
+      [{ id: row.id, bottle_name: row.bottle_name, whiskey_id: row.whiskey_id }],
+      hostKey,
+    );
 
-    if (!withWhiskeyUpdate.error) {
-      showSaved();
-      return;
-    }
-
-    const fallbackUpdate = await supabase
-      .from("pours")
-      .update({ bottle_name: row.bottle_name })
-      .eq("id", row.id);
-
-    if (fallbackUpdate.error) {
-      setError(getErrorMessage(fallbackUpdate.error));
+    if (updateError) {
+      setError(getErrorMessage(updateError));
       return;
     }
 
@@ -520,7 +463,12 @@ export default function HostPoursPage() {
     const ok = window.confirm(`Delete pour ${row.code}?`);
     if (!ok) return;
 
-    const { error: deleteError } = await supabase.from("pours").delete().eq("id", pourId);
+    const { error: deleteError } = await deleteHostPour(
+      supabase,
+      sessionId,
+      pourId,
+      hostKey,
+    );
     if (deleteError) {
       setError(getErrorMessage(deleteError));
       return;

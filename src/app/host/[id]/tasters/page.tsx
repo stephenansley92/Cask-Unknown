@@ -6,11 +6,11 @@ import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ConfirmModal } from "@/components/confirm-modal";
 import { errorMessage } from "@/lib/log";
+import { deleteHostParticipant, getHostSession } from "@/lib/session-api";
 
 type SessionRow = {
   id: string;
   title: string;
-  host_key: string;
   is_blind: boolean;
   status: string;
   created_at?: string;
@@ -70,45 +70,20 @@ export default function HostTastersPage() {
         setLoading(false);
         return;
       }
-      if (!hostKey) {
-        setError("Missing host key (this link is the host-only link).");
+      const { data: snapshot, error: sessErr } = await getHostSession(
+        supabase,
+        sessionId,
+        hostKey,
+      );
+
+      if (sessErr || !snapshot) {
+        setError(sessErr?.message || "Host session not found.");
         setLoading(false);
         return;
       }
 
-      const { data: sess, error: sessErr } = await supabase
-        .from("sessions")
-        .select("id,title,host_key,is_blind,status,created_at")
-        .eq("id", sessionId)
-        .single();
-
-      if (sessErr) {
-        setError(sessErr.message);
-        setLoading(false);
-        return;
-      }
-
-      if (!sess || sess.host_key !== hostKey) {
-        setError("Host key mismatch. This link is not authorized.");
-        setLoading(false);
-        return;
-      }
-
-      setSession(sess as SessionRow);
-
-      const { data: participantRows, error: partErr } = await supabase
-        .from("participants")
-        .select("id,session_id,display_name,created_at")
-        .eq("session_id", sessionId)
-        .order("created_at", { ascending: true });
-
-      if (partErr) {
-        setError(partErr.message);
-        setLoading(false);
-        return;
-      }
-
-      setParticipants((participantRows || []) as ParticipantRow[]);
+      setSession(snapshot.session as SessionRow);
+      setParticipants(snapshot.participants as ParticipantRow[]);
       setLoading(false);
     } catch (e: unknown) {
       setError(errorMessage(e));
@@ -138,25 +113,17 @@ export default function HostTastersPage() {
       setBusyId(participant.id);
       setError("");
 
-      const { error: scoreErr } = await supabase
-        .from("scores")
-        .delete()
-        .eq("session_id", sessionId)
-        .eq("participant_id", participant.id);
-
-      if (scoreErr) {
-        setError(scoreErr.message);
-        setBusyId(null);
-        return;
-      }
-
-      const { error: partErr } = await supabase.from("participants").delete().eq("id", participant.id);
+      const { error: partErr } = await deleteHostParticipant(
+        supabase,
+        sessionId,
+        participant.id,
+        hostKey,
+      );
 
       if (partErr) {
-        // Scores are gone but the participant row wasn't removed — reload so counts stay accurate.
         await loadAll();
         setError(
-          `Scores were removed but ${participant.display_name} could not be fully removed (${partErr.message}). Please try again.`
+          `Could not remove ${participant.display_name} (${partErr.message}). Please try again.`
         );
         setBusyId(null);
         return;
