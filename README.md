@@ -72,17 +72,22 @@ $env:SUPABASE_DB_URL = "postgresql://..."
 ./scripts/export-supabase-schema.ps1
 ```
 
-The script uses Supabase CLI 2.109.1 to create ignored files under
-`artifacts/supabase-preflight/`:
+The script always creates these ignored, data-free files under
+`artifacts/supabase-preflight/` without requiring Docker:
+
+- `production-catalog.json`
+- `preflight-results.json`
+
+When Docker is available, Supabase CLI 2.109.1 also creates:
 
 - `production-schema.sql`
 - `production-roles.sql`
 - `preflight-report.txt`
 
-If `psql` is not installed, run `supabase/preflight.sql` in the Supabase SQL
-Editor and append its results to the report. The preflight returns schema
-metadata and aggregate issue counts only; it does not select emails, host
-keys, score notes, or other user content.
+The preflight returns schema metadata and aggregate issue counts only; it does
+not select emails, host keys, score notes, or other user content. Regenerate
+the tracked data-free baseline from a reviewed catalog with `npm run db:baseline`.
+The baseline is only for a fresh project; never run it over an existing database.
 
 ## Database rollout rules
 
@@ -98,14 +103,19 @@ keys, score notes, or other user content.
 
 ## Deployment order
 
-1. `npm ci`
-2. `npm run check`
-3. `npm run audit:prod`
-4. Apply reviewed database migrations to staging.
-5. Run host, guest join, score/lock, reveal, profile, and history smoke tests.
-6. Apply the same migration versions to production.
-7. Deploy the matching application commit.
-8. Monitor auth, score persistence, realtime, and RPC error events.
+For the `20260711` session security rollout, preserve this exact order:
+
+1. Run `npm ci`, `npm run check`, and `npm run audit:prod`.
+2. Apply `202607110001_session_integrity.sql` and
+   `202607110002_session_api.sql`. These are additive and remain compatible
+   with the old client.
+3. Deploy application commit `c87b077` or later.
+4. Smoke-test create, host, guest join, autosave, core lock, soft reveal, final
+   lock, reveal, profile history, and legacy host links.
+5. Apply `202607110003_restrict_session_tables.sql`. It hashes remaining
+   plaintext host keys and revokes the legacy table policies.
+6. Repeat the smoke tests and monitor auth, score persistence, realtime, and
+   RPC error events.
 
 Database migrations and application changes that depend on them must document
 their required order. Do not deploy a client that calls a new RPC before that

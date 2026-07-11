@@ -17,6 +17,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "audit:prod": "npm audit --omit=dev",
+    "db:baseline": "node scripts/generate-schema-baseline.mjs",
     "check": "npm run lint && npm run test && npm run typecheck && npm run build"
   },
   "dependencies": {
