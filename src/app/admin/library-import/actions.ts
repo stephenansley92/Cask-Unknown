@@ -18,7 +18,7 @@ function adminRedirect(message = "") {
 }
 
 async function requireOwner() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

@@ -40,7 +40,7 @@ export async function signInAction(formData: FormData) {
     redirect(loginRedirect("Email and password are required.", redirectTo));
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -62,8 +62,8 @@ export async function signUpAction(formData: FormData) {
     redirect(loginRedirect("Email and password are required.", redirectTo));
   }
 
-  const origin = headers().get("origin") || "http://localhost:3000";
-  const supabase = createSupabaseServerClient();
+  const origin = (await headers()).get("origin") || "http://localhost:3000";
+  const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -88,7 +88,7 @@ export async function signUpAction(formData: FormData) {
 }
 
 export async function signOutAction() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
   redirect(loginRedirect("Signed out."));
 }

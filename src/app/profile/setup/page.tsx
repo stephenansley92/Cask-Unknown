@@ -4,18 +4,19 @@ import { safeInternalPath } from "@/lib/redirects";
 import { saveProfileSetupAction } from "./actions";
 
 type ProfileSetupPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     message?: string;
     redirectTo?: string;
-  };
+  }>;
 };
 
 export default async function ProfileSetupPage({
   searchParams,
 }: ProfileSetupPageProps) {
-  const redirectTo = safeInternalPath(searchParams?.redirectTo);
+  const resolvedSearchParams = await searchParams;
+  const redirectTo = safeInternalPath(resolvedSearchParams?.redirectTo);
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -38,7 +39,9 @@ export default async function ProfileSetupPage({
   }
 
   const message =
-    typeof searchParams?.message === "string" ? searchParams.message : "";
+    typeof resolvedSearchParams?.message === "string"
+      ? resolvedSearchParams.message
+      : "";
 
   return (
     <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6 flex items-center justify-center">

@@ -34,7 +34,7 @@ export async function deleteHistoryEntryAction(formData: FormData) {
     redirect(withMessage(returnTo, "Invalid delete request."));
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

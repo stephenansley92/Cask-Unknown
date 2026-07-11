@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { updateSession } from "@/lib/supabase/middleware";
 import { logEvent } from "@/lib/log";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { response, user } = await updateSession(request);
   const pathname = request.nextUrl.pathname;
   const protectedPrefixes = ["/rate", "/templates", "/history"];

@@ -34,7 +34,7 @@ function toNumber(value: number | string | null | undefined) {
 }
 
 export default async function LeaderboardPage() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const [
     { data, error },
     { data: publicRateSummaryData, error: publicRateSummaryError },

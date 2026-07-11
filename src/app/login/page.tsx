@@ -4,21 +4,24 @@ import { safeInternalPath } from "@/lib/redirects";
 import { signInAction, signOutAction, signUpAction } from "./actions";
 
 type LoginPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     message?: string;
     redirectTo?: string;
-  };
+  }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const supabase = createSupabaseServerClient();
+  const resolvedSearchParams = await searchParams;
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   const message =
-    typeof searchParams?.message === "string" ? searchParams.message : "";
-  const redirectTo = safeInternalPath(searchParams?.redirectTo);
+    typeof resolvedSearchParams?.message === "string"
+      ? resolvedSearchParams.message
+      : "";
+  const redirectTo = safeInternalPath(resolvedSearchParams?.redirectTo);
 
   return (
     <main className="min-h-screen bg-zinc-900 text-white p-6 flex items-center justify-center">

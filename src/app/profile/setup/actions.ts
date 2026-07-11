@@ -23,7 +23,7 @@ export async function saveProfileSetupAction(formData: FormData) {
     redirect(setupRedirect("Display name is required.", redirectTo));
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
     error: userError,

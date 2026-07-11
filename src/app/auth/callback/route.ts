@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const redirectPath = safeInternalPath(next, "/login");
 
   if (code) {
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
