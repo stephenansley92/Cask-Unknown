@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isAuthSessionMissingError } from "@supabase/supabase-js";
@@ -158,6 +159,7 @@ function getUnknownErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function ProfilePage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
@@ -232,7 +234,7 @@ export default function ProfilePage() {
       }
 
       if (!profileRow) {
-        window.location.href = "/profile/setup";
+        router.replace("/profile/setup");
         return;
       }
 
@@ -300,7 +302,7 @@ export default function ProfilePage() {
     };
 
     loadUser();
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const loadRatings = async () => {
@@ -1463,6 +1465,8 @@ export default function ProfilePage() {
                   setSigningOut(true);
                   const authClient = createSupabaseBrowserClient();
                   await authClient.auth.signOut();
+                  // Full page load on purpose: drops the signed-out session's client state and cached pages.
+                  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
                   window.location.href = "/login?message=Signed%20out.";
                 }}
                 disabled={signingOut}
