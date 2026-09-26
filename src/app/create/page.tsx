@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { createHostedSession } from "@/lib/session-api";
 
 function defaultTitle() {
@@ -41,7 +42,7 @@ export default function CreatePage() {
         error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError) {
+      if (userError && !isAuthSessionMissingError(userError)) {
         setError(userError.message);
         setBusy(false);
         return;

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { listHostedSessions } from "@/lib/session-api";
 
 type SavedSession = {
@@ -78,7 +79,7 @@ export default function SessionsPage() {
           error: userError,
         } = await supabase.auth.getUser();
 
-        if (userError) {
+        if (userError && !isAuthSessionMissingError(userError)) {
           setError(userError.message);
           setLoading(false);
           return;

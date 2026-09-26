@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { ACTIVE_PROFILE_STORAGE_KEY, BASE_PROFILES, getProfileOptions } from "@/lib/profiles";
 import {
   buildWhiskeyIdentityKey,
@@ -201,7 +202,7 @@ export default function ProfilePage() {
         error: userError,
       } = await authClient.auth.getUser();
 
-      if (userError) {
+      if (userError && !isAuthSessionMissingError(userError)) {
         setError(userError.message);
         setLoading(false);
         return;
@@ -313,7 +314,7 @@ export default function ProfilePage() {
           error: userError,
         } = await authClient.auth.getUser();
 
-        if (userError) throw userError;
+        if (userError && !isAuthSessionMissingError(userError)) throw userError;
         if (!user) {
           setRateHistory([]);
           setRateLoading(false);
@@ -493,7 +494,7 @@ export default function ProfilePage() {
         error: userError,
       } = await authClient.auth.getUser();
 
-      if (userError) throw userError;
+      if (userError && !isAuthSessionMissingError(userError)) throw userError;
       if (!user) {
         throw new Error("Sign in to import your collection.");
       }
