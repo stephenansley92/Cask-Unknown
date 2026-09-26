@@ -3,7 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Check, ChevronDown, ChevronLeft, Minus, Plus, Trash2 } from "lucide-react";
+import { ConfirmModal } from "@/components/confirm-modal";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { LoadingScreen, Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { cx } from "@/components/ui/cx";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  deleteHostPour,
+  getHostSession,
+  upsertHostPours,
+  type SessionPour,
+} from "@/lib/session-api";
 import {
   buildWhiskeyIdentityKey,
   buildWhiskeyInsertPayload,
@@ -18,7 +32,6 @@ import {
 type SessionRow = {
   id: string;
   title: string;
-  host_key: string;
   is_blind: boolean;
   status: string;
 };
@@ -30,6 +43,7 @@ type PourRaw = {
   bottle_name: string | null;
   whiskey_id?: string | null;
   whiskey?: { name?: string | null } | { name?: string | null }[] | null;
+  whiskey_name?: string | null;
   sort_order: number;
 };
 
@@ -74,7 +88,7 @@ function mapPourRow(raw: PourRaw): PourRow {
       typeof raw.whiskey_id === "string" && raw.whiskey_id.trim()
         ? raw.whiskey_id
         : null,
-    whiskey_name: extractWhiskeyName(raw.whiskey),
+    whiskey_name: raw.whiskey_name?.trim() || extractWhiskeyName(raw.whiskey),
     sort_order: Number(raw.sort_order ?? 0),
   };
 }
@@ -120,6 +134,7 @@ export default function HostPoursPage() {
   const [saveHint, setSaveHint] = useState("");
   const [quickCount, setQuickCount] = useState(4);
   const [quickBusy, setQuickBusy] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const saveHintTimer = useRef<number | null>(null);
 
   const hostUrl = useMemo(() => {
@@ -173,34 +188,6 @@ export default function HostPoursPage() {
     setWhiskeys([]);
   };
 
-  const loadPours = async () => {
-    if (!sessionId) return [];
-
-    const selectAttempts = [
-      "id,session_id,code,bottle_name,whiskey_id,whiskey:whiskeys(name),sort_order",
-      "id,session_id,code,bottle_name,whiskey_id,sort_order",
-      "id,session_id,code,bottle_name,sort_order",
-    ];
-
-    let lastError: unknown = null;
-    for (const selectColumns of selectAttempts) {
-      const { data, error: poursError } = await supabase
-        .from("pours")
-        .select(selectColumns)
-        .eq("session_id", sessionId)
-        .order("sort_order", { ascending: true });
-
-      if (poursError) {
-        lastError = poursError;
-        continue;
-      }
-
-      return ((data || []) as unknown as PourRaw[]).map(mapPourRow);
-    }
-
-    throw lastError;
-  };
-
   const insertPours = async (
     rows: Array<{
       session_id: string;
@@ -210,30 +197,9 @@ export default function HostPoursPage() {
       sort_order: number;
     }>
   ) => {
-    const withWhiskeyId = await supabase
-      .from("pours")
-      .insert(rows)
-      .select("id,session_id,code,bottle_name,whiskey_id,whiskey:whiskeys(name),sort_order");
-
-    if (!withWhiskeyId.error) {
-      return ((withWhiskeyId.data || []) as unknown as PourRaw[]).map(mapPourRow);
-    }
-
-    const rowsWithoutWhiskeyId = rows.map((row) =>
-      Object.fromEntries(
-        Object.entries(row).filter(([key]) => key !== "whiskey_id")
-      )
-    );
-    const withoutWhiskeyId = await supabase
-      .from("pours")
-      .insert(rowsWithoutWhiskeyId)
-      .select("id,session_id,code,bottle_name,sort_order");
-
-    if (withoutWhiskeyId.error) {
-      throw withoutWhiskeyId.error;
-    }
-
-    return ((withoutWhiskeyId.data || []) as PourRaw[]).map(mapPourRow);
+    const { data, error } = await upsertHostPours(supabase, sessionId, rows, hostKey);
+    if (error) throw error;
+    return (data || []).map((row) => mapPourRow(row as PourRaw));
   };
 
   const loadAll = async () => {
@@ -242,32 +208,26 @@ export default function HostPoursPage() {
       setError("");
       setLibraryError("");
 
-      if (!sessionId || !hostKey) {
-        setError("Missing session id or host key.");
+      if (!sessionId) {
+        setError("Missing session id.");
         setLoading(false);
         return;
       }
 
-      const { data: sess, error: sessErr } = await supabase
-        .from("sessions")
-        .select("id,title,host_key,is_blind,status")
-        .eq("id", sessionId)
-        .single();
+      const { data: snapshot, error: sessErr } = await getHostSession(
+        supabase,
+        sessionId,
+        hostKey,
+      );
 
-      if (sessErr) {
-        setError(sessErr.message);
+      if (sessErr || !snapshot) {
+        setError(sessErr?.message || "Host session not found.");
         setLoading(false);
         return;
       }
 
-      if (!sess || sess.host_key !== hostKey) {
-        setError("Host key mismatch. This link is not authorized.");
-        setLoading(false);
-        return;
-      }
-
-      setSession(sess as SessionRow);
-      const loaded = await loadPours();
+      setSession(snapshot.session as SessionRow);
+      const loaded = (snapshot.pours as SessionPour[]).map((row) => mapPourRow(row as PourRaw));
       const sorted = loaded.sort((a, b) => a.sort_order - b.sort_order);
       setPours(sorted);
       setQuickCount(Math.max(4, sorted.length));
@@ -328,23 +288,15 @@ export default function HostPoursPage() {
   };
 
   const savePour = async (row: PourRow) => {
-    const withWhiskeyUpdate = await supabase
-      .from("pours")
-      .update({ bottle_name: row.bottle_name, whiskey_id: row.whiskey_id })
-      .eq("id", row.id);
+    const { error: updateError } = await upsertHostPours(
+      supabase,
+      sessionId,
+      [{ id: row.id, bottle_name: row.bottle_name, whiskey_id: row.whiskey_id }],
+      hostKey,
+    );
 
-    if (!withWhiskeyUpdate.error) {
-      showSaved();
-      return;
-    }
-
-    const fallbackUpdate = await supabase
-      .from("pours")
-      .update({ bottle_name: row.bottle_name })
-      .eq("id", row.id);
-
-    if (fallbackUpdate.error) {
-      setError(getErrorMessage(fallbackUpdate.error));
+    if (updateError) {
+      setError(getErrorMessage(updateError));
       return;
     }
 
@@ -517,10 +469,12 @@ export default function HostPoursPage() {
     const row = pours.find((item) => item.id === pourId);
     if (!row) return;
 
-    const ok = window.confirm(`Delete pour ${row.code}?`);
-    if (!ok) return;
-
-    const { error: deleteError } = await supabase.from("pours").delete().eq("id", pourId);
+    const { error: deleteError } = await deleteHostPour(
+      supabase,
+      sessionId,
+      pourId,
+      hostKey,
+    );
     if (deleteError) {
       setError(getErrorMessage(deleteError));
       return;
@@ -537,270 +491,306 @@ export default function HostPoursPage() {
   };
 
   if (loading) {
+    return <LoadingScreen label="Loading pours" />;
+  }
+
+  if (!session) {
     return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="text-zinc-300">Loading pours...</div>
-      </main>
+      <PageShell center>
+        <div className="w-full text-center">
+          <Wordmark size="lg" />
+          <Notice tone="danger" title="Pours didn't load" className="mt-8 text-left">
+            {error || "We couldn't find this tasting."}
+          </Notice>
+          <Link href={hostUrl || "/"} className={buttonStyles({ variant: "secondary", size: "lg", block: true, className: "mt-4" })}>
+            Back to the dashboard
+          </Link>
+        </div>
+      </PageShell>
     );
   }
 
-  if (error || !session) {
-    return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="max-w-lg w-full bg-zinc-800 border border-zinc-700 rounded-2xl p-6">
-          <h1 className="text-xl font-bold text-amber-400 mb-2">Pours Error</h1>
-          <p className="text-zinc-300">{error || "Could not load session."}</p>
-          <div className="mt-4">
-            <Link href={hostUrl || "/"} className="inline-flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl">
-              Back to Host Dashboard
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
+  const pendingDeletePour = pours.find((p) => p.id === pendingDeleteId) || null;
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-6">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-6 md:p-8 shadow-lg space-y-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold text-amber-400">{session.title}</h1>
-              <p className="text-zinc-500 text-sm mt-1">Blind and Rate now share the same whiskey fields.</p>
-            </div>
-            <Link href={hostUrl} className="inline-flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl">
-              Back
-            </Link>
+    <PageShell width="md">
+      <ConfirmModal
+        open={!!pendingDeletePour}
+        title={`Delete Pour ${pendingDeletePour?.code ?? ""}?`}
+        message="Any scores tasters saved for this pour are deleted too."
+        confirmLabel="Delete pour"
+        cancelLabel="Keep it"
+        dangerous
+        onConfirm={() => {
+          const id = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (id) void deletePour(id);
+        }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
+
+      <header className="flex items-center justify-between">
+        <Link href={hostUrl} className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Dashboard
+        </Link>
+        <span className="text-xs text-fg-muted" aria-live="polite">
+          {saveHint}
+        </span>
+      </header>
+
+      <div className="mt-6">
+        <Eyebrow>{session.title}</Eyebrow>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Pours and bottles</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Tasters score these as Pour A, B, C…{" "}
+          {session.is_blind ? "Bottle names stay hidden until the big reveal." : ""}
+        </p>
+      </div>
+
+      {error ? (
+        <Notice tone="danger" onDismiss={() => setError("")} className="mt-4">
+          {error}
+        </Notice>
+      ) : null}
+      {libraryError ? (
+        <Notice tone="danger" onDismiss={() => setLibraryError("")} className="mt-4">
+          {libraryError}
+        </Notice>
+      ) : null}
+
+      {/* Bottle count quick-setup */}
+      <Card className="mt-6">
+        <div className="font-semibold">How many bottles are you pouring?</div>
+        <p className="mt-0.5 text-sm text-fg-muted">
+          Each bottle gets a numbered pour. You can fill in the bottle names any time.
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="flex items-center rounded-2xl border border-line bg-sunken p-1">
+            <button
+              type="button"
+              aria-label="Fewer bottles"
+              onClick={() => setQuickCount((n) => Math.max(1, n - 1))}
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-fg-muted hover:bg-raised hover:text-fg"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <span className="w-10 text-center font-display text-2xl font-semibold tabular-nums" aria-live="polite">
+              {quickCount}
+            </span>
+            <button
+              type="button"
+              aria-label="More bottles"
+              onClick={() => setQuickCount((n) => Math.min(26, n + 1))}
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-fg-muted hover:bg-raised hover:text-fg"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
           </div>
 
-          {saveHint ? <div className="text-xs text-zinc-300">{saveHint}</div> : null}
-          {libraryError ? <div className="text-xs text-red-300">{libraryError}</div> : null}
+          {quickCount > pours.length ? (
+            <Button variant="primary" onClick={() => bulkAddPours(quickCount)} disabled={quickBusy}>
+              {quickBusy
+                ? "Adding…"
+                : pours.length === 0
+                  ? `Set up ${quickCount} pours`
+                  : `Add ${quickCount - pours.length} more pour${quickCount - pours.length > 1 ? "s" : ""}`}
+            </Button>
+          ) : (
+            <span className="text-sm text-fg-muted">
+              {pours.length} pour{pours.length !== 1 ? "s" : ""} ready
+              {quickCount < pours.length ? ". Delete extras below." : ""}
+            </span>
+          )}
+        </div>
+      </Card>
 
-          {/* ── Bottle count quick-setup ───────────────────────────── */}
-          <div className="rounded-2xl border border-amber-500/30 bg-zinc-900 px-4 py-4">
-            <div className="font-semibold text-zinc-100">How many bottles are in this blind?</div>
-            <div className="mt-1 text-xs text-zinc-400">
-              Create a pour slot for each bottle. Tasters score them as Pour A, B, C…
-              You can fill in the actual bottle names any time — they stay hidden until BIG REVEAL.
-            </div>
+      <section className="mt-6">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <Eyebrow>Pours</Eyebrow>
+          {pours.length ? (
+            <Button variant="ghost" size="sm" onClick={addPour} className="-mr-3">
+              <Plus className="h-3.5 w-3.5" /> Add one
+            </Button>
+          ) : null}
+        </div>
 
-            <div className="mt-4 flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setQuickCount((n) => Math.max(1, n - 1))}
-                  className="w-9 h-9 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 border border-zinc-700 text-zinc-200 font-bold text-lg flex items-center justify-center"
-                >
-                  −
-                </button>
-                <span className="w-10 text-center text-2xl font-extrabold tabular-nums text-white">
-                  {quickCount}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setQuickCount((n) => Math.min(26, n + 1))}
-                  className="w-9 h-9 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 border border-zinc-700 text-zinc-200 font-bold text-lg flex items-center justify-center"
-                >
-                  +
-                </button>
-              </div>
+        {!libraryUserId ? (
+          <Notice className="mb-3">Sign in on this device to search the shared whiskey library.</Notice>
+        ) : null}
 
-              {quickCount > pours.length ? (
-                <button
-                  type="button"
-                  onClick={() => bulkAddPours(quickCount)}
-                  disabled={quickBusy}
-                  className="bg-amber-500 hover:bg-amber-600 active:scale-95 disabled:opacity-60 text-black font-semibold px-5 py-2 rounded-xl text-sm"
-                >
-                  {quickBusy
-                    ? "Adding…"
-                    : pours.length === 0
-                    ? `Set up ${quickCount} pours`
-                    : `Add ${quickCount - pours.length} more pour${quickCount - pours.length > 1 ? "s" : ""}`}
-                </button>
-              ) : (
-                <span className="text-xs text-zinc-500">
-                  {pours.length} pour{pours.length !== 1 ? "s" : ""} ready
-                  {quickCount < pours.length ? " — delete extras below" : ""}
-                </span>
-              )}
-            </div>
+        {pours.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-line-strong px-5 py-8 text-center text-sm text-fg-muted">
+            No pours yet. Pick a bottle count above to set up the tasting.
           </div>
-
-          {/* ── Library search ─────────────────────────────────────── */}
-          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4">
-            <div className="font-semibold text-zinc-100">Assign bottles to pours</div>
-            <div className="mt-1 text-xs text-zinc-400">
-              Type in a pour&apos;s bottle field to search the whiskey library, then tap a match to link it.
-              Names stay hidden until BIG REVEAL.
-            </div>
-            {!libraryUserId ? (
-              <div className="mt-2 text-xs text-amber-300">
-                Sign in on this device to load and use the shared whiskey library.
-              </div>
-            ) : null}
-          </div>
-
-          <button
-            onClick={addPour}
-            className="bg-zinc-800 hover:bg-zinc-700 active:scale-95 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl"
-          >
-            + Add One More Pour
-          </button>
-
-          <div className="space-y-2">
-            {pours.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-zinc-700 px-4 py-6 text-center text-sm text-zinc-500">
-                No pours yet. Use the bottle counter above to set up your blind.
-              </div>
-            )}
+        ) : (
+          <div className="overflow-hidden rounded-3xl border border-line bg-surface">
             {pours.map((pour) => {
               const isOpen = openPourId === pour.id;
               const libraryMatches = getLibraryMatchesForPour(pour);
               const hasBottleSearch = Boolean((pour.bottle_name || "").trim());
+              const assignedName = pour.whiskey_name || pour.bottle_name;
+              const inputId = `pour-${pour.id}-bottle`;
               return (
-                <div key={pour.id} className="rounded-2xl border border-zinc-700">
+                <div key={pour.id} className="border-b border-line last:border-b-0">
                   <button
                     type="button"
                     onClick={() => setOpenPourId(isOpen ? null : pour.id)}
-                    className="w-full text-left px-4 py-3 flex items-center justify-between"
+                    aria-expanded={isOpen}
+                    className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-raised"
                   >
-                    <div>
-                      <div className="font-semibold">Pour {pour.code}</div>
-                      <div className="text-xs text-zinc-500">
-                        {pour.whiskey_name || pour.bottle_name || "No whiskey selected"}
-                      </div>
-                    </div>
-                    <div className="text-xs text-zinc-500">{isOpen ? "Hide" : "Edit"}</div>
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line-strong font-display font-semibold">
+                      {pour.code}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={cx("block truncate font-semibold", !assignedName && "text-fg-faint")}>
+                        {assignedName || "No bottle yet"}
+                      </span>
+                      {pour.whiskey_id ? (
+                        <span className="flex items-center gap-1 text-xs text-success">
+                          <Check className="h-3 w-3" /> Linked to library
+                        </span>
+                      ) : null}
+                    </span>
+                    <ChevronDown
+                      className={cx("h-4 w-4 shrink-0 text-fg-faint transition-transform", isOpen && "rotate-180")}
+                    />
                   </button>
+
                   {isOpen ? (
-                    <div className="px-4 pb-4 space-y-3">
+                    <div className="space-y-3 bg-sunken/60 px-5 pb-5 pt-3">
                       <div>
-                        <div className="text-xs text-zinc-400 mb-1.5">
-                          Bottle name{" "}
-                          <span className="text-amber-400/80 font-semibold">- hidden until BIG REVEAL</span>
-                        </div>
+                        <label htmlFor={inputId} className="text-xs font-semibold text-fg-muted">
+                          Bottle name
+                        </label>
                         <input
+                          id={inputId}
                           value={pour.bottle_name ?? ""}
                           onChange={(e) => updatePourBottleSearch(pour, e.target.value)}
                           onBlur={(e) => savePourBottleSearch(pour, e.currentTarget.value)}
-                          placeholder="Search or type bottle name"
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                          placeholder="Search the library or type a name"
+                          className="mt-1.5 h-11 w-full rounded-2xl border border-line bg-sunken px-4 text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
                         />
                       </div>
-                      <div className="text-xs text-zinc-500">
-                        Matching library results for this pour
-                      </div>
-                      <div className="max-h-48 overflow-y-auto space-y-2">
+
+                      <div className="max-h-56 space-y-1.5 overflow-y-auto">
                         {libraryMatches.length > 0 ? (
-                          libraryMatches.map((item) => (
-                            <button
-                              key={`${pour.id}-${item.id}`}
-                              type="button"
-                              onClick={() => selectWhiskeyForPour(pour, item)}
-                              className={[
-                                "w-full text-left rounded-xl border px-3 py-2",
-                                pour.whiskey_id === item.id
-                                  ? "border-amber-500 text-amber-200"
-                                  : "border-zinc-700 text-zinc-200",
-                              ].join(" ")}
-                            >
-                              <div className="font-semibold">{item.name}</div>
-                              <div className="text-xs text-zinc-500">
-                                {[
-                                  item.distillery,
-                                  item.proof !== null ? `${item.proof} proof` : null,
-                                  item.bottleSize,
-                                ]
-                                  .filter(Boolean)
-                                  .join(" - ")}
-                              </div>
-                            </button>
-                          ))
+                          libraryMatches.map((item) => {
+                            const selected = pour.whiskey_id === item.id;
+                            return (
+                              <button
+                                key={`${pour.id}-${item.id}`}
+                                type="button"
+                                onClick={() => selectWhiskeyForPour(pour, item)}
+                                aria-pressed={selected}
+                                className={cx(
+                                  "flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left",
+                                  selected
+                                    ? "border-accent/50 bg-accent-soft"
+                                    : "border-line bg-surface hover:border-line-strong",
+                                )}
+                              >
+                                <span className="min-w-0 flex-1">
+                                  <span className={cx("block truncate text-sm font-semibold", selected && "text-accent")}>
+                                    {item.name}
+                                  </span>
+                                  <span className="block truncate text-xs text-fg-faint">
+                                    {[
+                                      item.distillery,
+                                      item.proof !== null ? `${item.proof} proof` : null,
+                                      item.bottleSize,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </span>
+                                </span>
+                                {selected ? <Check className="h-4 w-4 shrink-0 text-accent" /> : null}
+                              </button>
+                            );
+                          })
                         ) : (
-                          <div className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-3 text-xs text-zinc-500">
+                          <p className="px-1 text-xs text-fg-faint">
                             {!libraryUserId
-                              ? "Sign in to load the shared whiskey library."
+                              ? "Sign in to search the shared whiskey library."
                               : whiskeys.length === 0
-                              ? "No whiskeys are available in the shared library yet."
-                              : hasBottleSearch
-                              ? "No whiskeys match your search."
-                              : "Type a bottle name above to search the shared library."}
-                          </div>
+                                ? "The shared library is empty."
+                                : hasBottleSearch
+                                  ? "No library matches. The name you typed is still saved."
+                                  : "Start typing to search the shared library."}
+                          </p>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => selectWhiskeyForPour(pour, null)}
-                        className="text-xs text-zinc-300 hover:text-zinc-100 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-3 py-2 rounded-lg"
-                      >
-                        Clear whiskey selection
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deletePour(pour.id)}
-                        className="text-xs text-red-300 hover:text-red-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-3 py-2 rounded-lg"
-                      >
-                        Delete pour
-                      </button>
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {pour.whiskey_id ? (
+                          <Button variant="secondary" size="sm" onClick={() => selectWhiskeyForPour(pour, null)}>
+                            Unlink bottle
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="ghostDanger"
+                          size="sm"
+                          onClick={() => setPendingDeleteId(pour.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete pour
+                        </Button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
               );
             })}
           </div>
+        )}
+      </section>
 
-          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4 space-y-3">
-            <div>
-              <div className="font-semibold text-zinc-100">Create missing whiskey</div>
-              <div className="mt-1 text-xs text-zinc-500">
-                Fallback only. Use this when the shared whiskey library does not already contain the bottle.
-              </div>
-            </div>
+      <details className="group mt-6 rounded-3xl border border-line bg-surface">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 [&::-webkit-details-marker]:hidden">
+          <span>
+            <span className="block font-semibold">Bottle not in the library?</span>
+            <span className="block text-xs text-fg-muted">Add it so you can link it to a pour.</span>
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-fg-faint transition-transform group-open:rotate-180" />
+        </summary>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {[
-                { key: "name", placeholder: "Name (required)" },
-                { key: "distillery", placeholder: "Distillery" },
-                { key: "proof", placeholder: "Proof" },
-                { key: "age", placeholder: "Age" },
-                { key: "bottleSize", placeholder: "Bottle size" },
-                { key: "category", placeholder: "Category" },
-                { key: "subcategory", placeholder: "Subcategory" },
-                { key: "rarity", placeholder: "Rarity" },
-                { key: "msrp", placeholder: "MSRP" },
-                { key: "secondary", placeholder: "Secondary" },
-                { key: "paid", placeholder: "Paid" },
-                { key: "status", placeholder: "Status" },
-              ].map((field) => (
-                <input
-                  key={field.key}
-                  value={newWhiskey[field.key as keyof WhiskeyFormValues]}
-                  onChange={(e) =>
-                    updateNewWhiskey(field.key as keyof WhiskeyFormValues, e.target.value)
-                  }
-                  placeholder={field.placeholder}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
-                />
-              ))}
-            </div>
-            <textarea
-              value={newWhiskey.notes}
-              onChange={(e) => updateNewWhiskey("notes", e.target.value)}
-              placeholder="Notes"
-              className="w-full min-h-[86px] bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 placeholder:text-zinc-500"
-            />
-            <button
-              onClick={createWhiskey}
-              disabled={creatingWhiskey || !libraryUserId}
-              className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl disabled:opacity-60"
-            >
-              {creatingWhiskey ? "Creating..." : "Create Missing Whiskey"}
-            </button>
+        <div className="space-y-3 border-t border-line px-5 pb-5 pt-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {[
+              { key: "name", placeholder: "Name (required)" },
+              { key: "distillery", placeholder: "Distillery" },
+              { key: "proof", placeholder: "Proof" },
+              { key: "age", placeholder: "Age" },
+              { key: "bottleSize", placeholder: "Bottle size" },
+              { key: "category", placeholder: "Category" },
+              { key: "subcategory", placeholder: "Subcategory" },
+              { key: "rarity", placeholder: "Rarity" },
+              { key: "msrp", placeholder: "MSRP" },
+              { key: "secondary", placeholder: "Secondary price" },
+              { key: "paid", placeholder: "Price paid" },
+              { key: "status", placeholder: "Status" },
+            ].map((field) => (
+              <input
+                key={field.key}
+                aria-label={field.placeholder}
+                value={newWhiskey[field.key as keyof WhiskeyFormValues]}
+                onChange={(e) => updateNewWhiskey(field.key as keyof WhiskeyFormValues, e.target.value)}
+                placeholder={field.placeholder}
+                className="h-11 w-full rounded-2xl border border-line bg-sunken px-4 text-sm text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
+              />
+            ))}
           </div>
+          <textarea
+            aria-label="Notes"
+            value={newWhiskey.notes}
+            onChange={(e) => updateNewWhiskey("notes", e.target.value)}
+            placeholder="Notes"
+            className="min-h-[86px] w-full rounded-2xl border border-line bg-sunken px-4 py-3 text-sm text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
+          />
+          <Button variant="secondary" onClick={createWhiskey} disabled={creatingWhiskey || !libraryUserId}>
+            {creatingWhiskey ? "Adding…" : "Add to library"}
+          </Button>
         </div>
-      </div>
-    </main>
+      </details>
+    </PageShell>
   );
 }

@@ -30,9 +30,9 @@ type TesterRow = {
 };
 
 type AdminTestersPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     message?: string;
-  };
+  }>;
 };
 
 function formatDateTime(value?: string) {
@@ -45,7 +45,8 @@ function formatDateTime(value?: string) {
 export default async function AdminTestersPage({
   searchParams,
 }: AdminTestersPageProps) {
-  const supabase = createSupabaseServerClient();
+  const resolvedSearchParams = await searchParams;
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -110,7 +111,9 @@ export default async function AdminTestersPage({
   }
 
   const message =
-    typeof searchParams?.message === "string" ? searchParams.message : "";
+    typeof resolvedSearchParams?.message === "string"
+      ? resolvedSearchParams.message
+      : "";
 
   return (
     <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">

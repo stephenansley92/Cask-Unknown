@@ -4,9 +4,28 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ConnectionBanner } from "@/components/connection-banner";
-import { Trophy, ChevronLeft, ChevronRight, SkipForward, RefreshCw, Download, Share2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Download,
+  GlassWater,
+  Play,
+  RefreshCw,
+  Share2,
+  SkipForward,
+  Trophy,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { LoadingScreen, Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { Toast } from "@/components/ui/toast";
+import { cx } from "@/components/ui/cx";
 import confetti from "canvas-confetti";
 import { useWakeLock } from "@/lib/use-wake-lock";
+import { getRevealSession } from "@/lib/session-api";
 
 type SessionRow = {
   id: string;
@@ -86,92 +105,41 @@ function isPerfect(value: number, max: number) {
 }
 
 /**
- * Color system (NO YELLOW):
- * - red / orange / teal / emerald based on ratio
- * - color applied to TEXT ONLY (cards stay dark)
- * - perfect score pops emerald
- *
- * Returns Tailwind class strings (no custom colors required).
+ * Score color scale, applied to text and thin bars only (cards stay dark):
+ * low → danger, lower-mid → orange, mid → neutral, high → success.
+ * A perfect score gets a soft success glow.
  */
 function scoreColor(value: number, max: number) {
   const r = ratio(value, max);
-  const perfect = isPerfect(value, max);
 
-  if (perfect) {
+  if (isPerfect(value, max)) {
     return {
-      border: "border-zinc-800",
-      bg: "bg-transparent",
-      text: "text-emerald-200",
-      glow: "drop-shadow-[0_0_6px_rgba(52,211,153,0.45)]",
-      chip: "bg-emerald-500/15 border border-emerald-400/50 text-emerald-100",
+      text: "text-success",
+      bar: "bg-success",
+      glow: "drop-shadow-[0_0_8px_rgb(130_209_166/0.55)]",
     };
   }
 
-  // 0–0.29 red
   if (r < 0.3) {
-    return {
-      border: "border-zinc-800",
-      bg: "bg-transparent",
-      text: "text-red-300",
-      glow: "drop-shadow-[0_0_4px_rgba(239,68,68,0.35)]",
-      chip: "bg-red-500/12 border border-red-500/30 text-red-100",
-    };
+    return { text: "text-danger", bar: "bg-danger", glow: "" };
   }
 
-  // 0.30–0.49 orange
   if (r < 0.5) {
-    return {
-      border: "border-zinc-800",
-      bg: "bg-transparent",
-      text: "text-orange-300",
-      glow: "drop-shadow-[0_0_4px_rgba(249,115,22,0.35)]",
-      chip: "bg-orange-500/12 border border-orange-500/30 text-orange-100",
-    };
+    return { text: "text-orange-300", bar: "bg-orange-300", glow: "" };
   }
 
-  // 0.50–0.69 teal (replaces yellow)
   if (r < 0.7) {
-    return {
-      border: "border-zinc-800",
-      bg: "bg-transparent",
-      text: "text-teal-300",
-      glow: "drop-shadow-[0_0_4px_rgba(45,212,191,0.35)]",
-      chip: "bg-teal-500/12 border border-teal-500/30 text-teal-100",
-    };
+    return { text: "text-fg", bar: "bg-fg-muted", glow: "" };
   }
 
-  // 0.70+ emerald
-  return {
-    border: "border-zinc-800",
-    bg: "bg-transparent",
-    text: "text-emerald-500",
-    glow: "drop-shadow-[0_0_4px_rgba(52,211,153,0.35)]",
-    chip: "bg-emerald-500/12 border border-emerald-500/30 text-emerald-100",
-  };
+  return { text: "text-success", bar: "bg-success", glow: "" };
 }
 
-function chipClass(opts: { kind: "best" | "least" | "neutral"; value?: number; max?: number }) {
-  const base = "text-xs font-semibold px-3 py-1 rounded-full border backdrop-blur-sm";
-
-  // Perfect uses scoreColor chip
-  if (
-    typeof opts.value === "number" &&
-    typeof opts.max === "number" &&
-    isPerfect(opts.value, opts.max)
-  ) {
-    const c = scoreColor(opts.value, opts.max);
-    return [base, c.chip].join(" ");
-  }
-
-  // Best / Least are fixed (readability)
-  if (opts.kind === "best") {
-    return [base, "bg-emerald-500/12 border-emerald-500/30 text-emerald-100"].join(" ");
-  }
-  if (opts.kind === "least") {
-    return [base, "bg-red-500/12 border-red-500/30 text-red-100"].join(" ");
-  }
-
-  return [base, "bg-zinc-900/60 border-zinc-800 text-zinc-100"].join(" ");
+function chipClass(kind: "best" | "least") {
+  return [
+    "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold",
+    kind === "best" ? "bg-success-soft border-success/30 text-success" : "bg-danger-soft border-danger/30 text-danger",
+  ].join(" ");
 }
 
 type RankMeta = {
@@ -281,62 +249,37 @@ export default function RevealPage() {
   const [cinematicStep, setCinematicStep] = useState(0);
 
   const loadAll = async (id: string) => {
-    const { data: sess, error: sessErr } = await supabase
-      .from("sessions")
-      .select("id,title,is_blind,status,created_at")
-      .eq("id", id)
-      .single();
-    if (sessErr) throw sessErr;
+    const { data: snapshot, error: snapshotError } = await getRevealSession(supabase, id);
+    if (snapshotError || !snapshot) throw snapshotError || new Error("Session not found.");
 
-    const { data: poursData, error: poursErr } = await supabase
-      .from("pours")
-      .select("id,session_id,code,bottle_name,sort_order")
-      .eq("session_id", id)
-      .order("sort_order", { ascending: true });
-    if (poursErr) throw poursErr;
+    setSession(snapshot.session as SessionRow);
+    setPours(snapshot.pours as PourRow[]);
+    setParticipants(snapshot.participants as ParticipantRow[]);
+    setScores(snapshot.scores as ScoreRow[]);
+  };
 
-    const { data: partData, error: partErr } = await supabase
-      .from("participants")
-      .select("id,session_id,display_name")
-      .eq("session_id", id)
-      .order("created_at", { ascending: true });
-    if (partErr) throw partErr;
+  const runLoad = async () => {
+    try {
+      setLoading(true);
+      setError("");
 
-    const { data: scoreData, error: scoreErr } = await supabase
-      .from("scores")
-      .select(
-        "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes"
-      )
-      .eq("session_id", id);
-    if (scoreErr) throw scoreErr;
+      if (!sessionId) {
+        setError("Missing session id.");
+        setLoading(false);
+        return;
+      }
 
-    setSession(sess as SessionRow);
-    setPours((poursData || []) as PourRow[]);
-    setParticipants((partData || []) as ParticipantRow[]);
-    setScores((scoreData || []) as ScoreRow[]);
+      await loadAll(sessionId);
+      setLoading(false);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Unknown error.");
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    const run = async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        if (!sessionId) {
-          setError("Missing session id.");
-          setLoading(false);
-          return;
-        }
-
-        await loadAll(sessionId);
-        setLoading(false);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Unknown error.");
-        setLoading(false);
-      }
-    };
-
-    run();
+    runLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   useEffect(() => {
@@ -355,54 +298,57 @@ export default function RevealPage() {
   useEffect(() => {
     if (!sessionId) return;
 
+    // Coalesce bursts of change events (e.g. every taster autosaving during
+    // reveal-stage scoring) into one reload per table per window instead of
+    // one full reload per event.
+    const refreshTimers: Record<string, number> = {};
+    const scheduleRefresh = (kind: string, task: () => Promise<void>) => {
+      if (refreshTimers[kind]) window.clearTimeout(refreshTimers[kind]);
+      refreshTimers[kind] = window.setTimeout(() => {
+        delete refreshTimers[kind];
+        void task();
+      }, 400);
+    };
+
+    const reloadAll = async () => {
+      try {
+        await loadAll(sessionId);
+      } catch (syncError) {
+        console.warn("Reveal sync failed:", syncError);
+      }
+    };
+
     const channel = supabase
       .channel(`reveal-live-${sessionId}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sessionId}` },
-        (payload: { new?: { status?: string | null } }) => {
-          const newStatus = payload.new?.status || "";
-          setSession((prev) => (prev ? { ...prev, status: newStatus } : prev));
-        }
+        () => scheduleRefresh("session", reloadAll)
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "scores", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          const { data, error: scoreErr } = await supabase
-            .from("scores")
-            .select(
-              "id,session_id,pour_id,participant_id,nose,flavor,mouthfeel,complexity,balance,finish,uniqueness,drinkability,packaging,value,total,notes"
-            )
-            .eq("session_id", sessionId);
-
-          if (scoreErr) {
-            console.warn("Reveal scores sync failed:", scoreErr.message);
-          } else {
-            setScores((data || []) as ScoreRow[]);
-          }
-        }
+        () => scheduleRefresh("scores", reloadAll)
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pours", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          const { data, error: poursErr } = await supabase
-            .from("pours")
-            .select("id,session_id,code,bottle_name,sort_order")
-            .eq("session_id", sessionId)
-            .order("sort_order", { ascending: true });
-
-          if (poursErr) {
-            console.warn("Reveal pours sync failed:", poursErr.message);
-          } else {
-            setPours((data || []) as PourRow[]);
-          }
-        }
+        () => scheduleRefresh("pours", reloadAll)
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "participants",
+          filter: `session_id=eq.${sessionId}`,
+        },
+        () => scheduleRefresh("participants", reloadAll)
       )
       .subscribe();
 
     return () => {
+      for (const timer of Object.values(refreshTimers)) window.clearTimeout(timer);
       supabase.removeChannel(channel);
     };
   }, [sessionId]);
@@ -653,69 +599,82 @@ export default function RevealPage() {
     [cinematicStep, cinematicList.length]
   );
 
+  // Arrow keys, space, and presentation clickers (PageUp/PageDown) drive the
+  // cinematic reveal on a TV. The final results page keeps normal scrolling.
+  const cinematicActive = Boolean(session) && (isRevealed || !session?.is_blind) && !isFinalStep;
+  useEffect(() => {
+    if (!cinematicActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      // A focused button already turns space into a click.
+      if (e.key === " " && target?.closest("button")) return;
+      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
+        e.preventDefault();
+        setCinematicStep((step) => Math.min(cinematicList.length, step + 1));
+      } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        e.preventDefault();
+        setCinematicStep((step) => Math.max(0, step - 1));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cinematicActive, cinematicList.length]);
+
+  // Each reveal step (and the results page) starts at the top on phones.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [cinematicStep]);
+
   const activeCinematic = useMemo(() => {
     if (isFinalStep) return null;
     return cinematicList[cinematicStep] || null;
   }, [cinematicList, cinematicStep, isFinalStep]);
 
-  // For the current pour card: build “shoutout chips” only when they apply to *this pour*
+  // Shoutouts for the pour on screen, grouped by honor so a TV shows
+  // "Best nose: Stephen, Maya" instead of one chip per person.
   const shoutoutChipsForPour = useMemo(() => {
     const ps = activeCinematic;
     if (!ps) return [];
 
     const pourId = ps.pour.id;
-    const chips: { text: string; kind: "best" | "least" | "neutral"; value?: number; max?: number }[] =
-      [];
+    const order = [
+      "favorite",
+      "least",
+      ...CATEGORY.map((c) => `best-${c.key}`),
+      ...CATEGORY.map((c) => `worst-${c.key}`),
+    ];
+    const groups = new Map<string, { label: string; kind: "best" | "least"; names: string[] }>();
+    const add = (key: string, label: string, kind: "best" | "least", name: string) => {
+      const group = groups.get(key) ?? { label, kind, names: [] };
+      group.names.push(name);
+      groups.set(key, group);
+    };
 
     for (const u of participants) {
       const uStats = perUserRankings[u.id];
       if (!uStats) continue;
+      // With a single scorecard, a taster's favorite and least favorite are the same pour.
+      const hasSpread = uStats.ranking.length > 1;
 
-      // Winner / least favorite (by total)
-      if (uStats.best && uStats.best.pour.id === pourId) {
-        chips.push({
-          text: `${u.display_name}'s WINNER (${uStats.best.total.toFixed(0)}/100)`,
-          kind: "best",
-          value: uStats.best.total,
-          max: 100,
-        });
-      }
-      if (uStats.least && uStats.least.pour.id === pourId) {
-        chips.push({
-          text: `${u.display_name}'s LEAST FAVORITE (${uStats.least.total.toFixed(0)}/100)`,
-          kind: "least",
-          value: uStats.least.total,
-          max: 100,
-        });
+      if (uStats.best?.pour.id === pourId) add("favorite", "Favorite", "best", u.display_name);
+      if (hasSpread && uStats.least?.pour.id === pourId) {
+        add("least", "Least favorite", "least", u.display_name);
       }
 
-      // Best/Worst per category
       for (const c of CATEGORY) {
         const best = uStats.catBest[c.key];
-        if (best && best.pour.id === pourId) {
-          chips.push({
-            text: `${u.display_name}'s best ${c.label.toUpperCase()} (${best.value.toFixed(0)}/${best.max})`,
-            kind: "best",
-            value: best.value,
-            max: best.max,
-          });
-        }
         const worst = uStats.catWorst[c.key];
-        if (worst && worst.pour.id === pourId) {
-          chips.push({
-            text: `${u.display_name}'s least favorite ${c.label.toUpperCase()} (${worst.value.toFixed(
-              0
-            )}/${worst.max})`,
-            kind: "least",
-            value: worst.value,
-            max: worst.max,
-          });
-        }
+        // Skip categories where the taster scored every pour the same.
+        if (!best || !worst || best.value === worst.value) continue;
+        if (best.pour.id === pourId) add(`best-${c.key}`, `Best ${c.label.toLowerCase()}`, "best", u.display_name);
+        if (worst.pour.id === pourId) add(`worst-${c.key}`, `Weakest ${c.label.toLowerCase()}`, "least", u.display_name);
       }
     }
 
-    // Keep it readable if you have lots of users
-    return chips.slice(0, 24);
+    return [...groups.entries()]
+      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+      .map(([, g]) => ({ text: `${g.label}: ${g.names.join(", ")}`, kind: g.kind }));
   }, [activeCinematic, participants, perUserRankings]);
 
   const notesForActivePour = useMemo(() => {
@@ -813,13 +772,13 @@ export default function RevealPage() {
         const y = 360 + index * 54;
         const rank = pourRankMeta[row.pour.id];
         return `
-          <text x="84" y="${y}" fill="#a1a1aa" font-size="24" font-weight="700">${escapeXml(
+          <text x="84" y="${y}" fill="#ab9f90" font-size="24" font-weight="700">${escapeXml(
             formatRankLabel(rank || { rank: index + 1, tied: false, size: 1 })
           )}</text>
-          <text x="220" y="${y}" fill="#ffffff" font-size="26" font-weight="800">${escapeXml(
+          <text x="220" y="${y}" fill="#f1e9de" font-size="26" font-weight="800">${escapeXml(
             displayPourName(row.pour)
           )}</text>
-          <text x="1010" y="${y}" fill="#f59e0b" font-size="26" font-weight="900" text-anchor="end">${row.avgTotal.toFixed(
+          <text x="1010" y="${y}" fill="#e3a94f" font-size="26" font-weight="900" text-anchor="end">${row.avgTotal.toFixed(
             1
           )}</text>`;
       })
@@ -829,34 +788,32 @@ export default function RevealPage() {
       .map((row, index) => {
         const y = 680 + index * 42;
         return `
-          <text x="84" y="${y}" fill="#a1a1aa" font-size="21" font-weight="700">Best ${escapeXml(
+          <text x="84" y="${y}" fill="#ab9f90" font-size="21" font-weight="700">Best ${escapeXml(
             row.label
           )}</text>
-          <text x="300" y="${y}" fill="#ffffff" font-size="21" font-weight="800">${escapeXml(
+          <text x="300" y="${y}" fill="#f1e9de" font-size="21" font-weight="800">${escapeXml(
             row.pour ? displayPourName(row.pour) : "-"
           )}</text>
-          <text x="1010" y="${y}" fill="#d4d4d8" font-size="21" font-weight="700" text-anchor="end">${row.value.toFixed(
+          <text x="1010" y="${y}" fill="#f1e9de" font-size="21" font-weight="700" text-anchor="end">${row.value.toFixed(
             1
           )}/${row.max}</text>`;
       })
       .join("");
 
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
-      <rect width="1080" height="1080" fill="#09090b"/>
-      <rect x="48" y="48" width="984" height="984" rx="36" fill="#18181b" stroke="#3f3f46" stroke-width="2"/>
-      <text x="84" y="124" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="4">CASK UNKNOWN</text>
-      <text x="84" y="184" fill="#ffffff" font-family="Arial, sans-serif" font-size="48" font-weight="900">${safeTitle}</text>
-      <text x="84" y="236" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="24">${date} • ${participants.length} tasters • ${pours.length} pours</text>
-      <rect x="84" y="274" width="912" height="86" rx="24" fill="#0f0f12" stroke="#3f3f46"/>
-      <text x="116" y="326" fill="#f59e0b" font-family="Arial, sans-serif" font-size="26" font-weight="800">Winner</text>
-      <text x="260" y="326" fill="#ffffff" font-family="Arial, sans-serif" font-size="32" font-weight="900">${winnerName}</text>
-      <text x="84" y="310" fill="#ffffff" font-family="Arial, sans-serif" font-size="1"></text>
-      <text x="84" y="322" fill="#ffffff" font-family="Arial, sans-serif" font-size="1"></text>
+      <rect width="1080" height="1080" fill="#13100d"/>
+      <rect x="48" y="48" width="984" height="984" rx="36" fill="#1c1814" stroke="#2f2923" stroke-width="2"/>
+      <text x="84" y="124" fill="#ab9f90" font-family="Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="4">CASK UNKNOWN</text>
+      <text x="84" y="184" fill="#f1e9de" font-family="Arial, sans-serif" font-size="48" font-weight="700" font-family="Georgia, 'Times New Roman', serif">${safeTitle}</text>
+      <text x="84" y="236" fill="#ab9f90" font-family="Arial, sans-serif" font-size="24">${date} • ${participants.length} tasters • ${pours.length} pours</text>
+      <rect x="84" y="274" width="912" height="86" rx="24" fill="#0f0c0a" stroke="#2f2923"/>
+      <text x="116" y="326" fill="#e3a94f" font-family="Arial, sans-serif" font-size="26" font-weight="800">Winner</text>
+      <text x="260" y="326" fill="#f1e9de" font-family="Arial, sans-serif" font-size="32" font-weight="700" font-family="Georgia, 'Times New Roman', serif">${winnerName}</text>
       <g font-family="Arial, sans-serif">${rankingSvg}</g>
-      <line x1="84" y1="628" x2="996" y2="628" stroke="#3f3f46"/>
-      <text x="84" y="650" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="22" font-weight="800">CATEGORY WINNERS</text>
+      <line x1="84" y1="628" x2="996" y2="628" stroke="#2f2923"/>
+      <text x="84" y="650" fill="#ab9f90" font-family="Arial, sans-serif" font-size="22" font-weight="800">CATEGORY WINNERS</text>
       <g font-family="Arial, sans-serif">${categorySvg}</g>
-      <text x="84" y="972" fill="#71717a" font-family="Arial, sans-serif" font-size="22">Shareable recap generated by Cask Unknown</text>
+      <text x="84" y="972" fill="#7c7166" font-family="Arial, sans-serif" font-size="22">Shareable recap generated by Cask Unknown</text>
     </svg>`;
 
     const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
@@ -873,536 +830,463 @@ export default function RevealPage() {
 
   // ---------- UI states ----------
   if (loading) {
-    return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center p-6">
-        <div className="text-zinc-400">Preparing reveal…</div>
-      </main>
-    );
+    return <LoadingScreen label="Preparing the reveal" />;
   }
 
   if (error) {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center p-6">
-        <div className="max-w-lg w-full bg-zinc-950 border border-zinc-800 rounded-3xl p-6">
-          <div className="text-2xl font-extrabold">Reveal Error</div>
-          <div className="text-zinc-400 mt-2">{error}</div>
+      <PageShell center>
+        <div className="w-full text-center">
+          <Wordmark size="lg" />
+          <Notice tone="danger" title="The reveal didn't load" className="mt-8 text-left">
+            {error}
+          </Notice>
+          <Button variant="primary" size="lg" block className="mt-4" onClick={() => void runLoad()}>
+            Try again
+          </Button>
         </div>
-      </main>
+      </PageShell>
     );
   }
 
   if (!session) return null;
 
+  const title = session.title;
+
   // Waiting screen (blind sessions) until BIG REVEAL
   if (!isRevealed && session.is_blind) {
     return (
-      <main className="min-h-screen bg-black text-white p-6 flex items-center justify-center">
+      <main className="flex min-h-dvh flex-col items-center justify-center bg-canvas p-6 text-center text-fg">
         <ConnectionBanner />
-        <div className="max-w-xl w-full bg-zinc-950 border border-zinc-800 rounded-3xl p-8 text-center animate-fade-in">
-          <div className="text-sm text-zinc-400 uppercase tracking-widest">Cask Unknown</div>
-          <div className="text-4xl font-extrabold mt-3 tracking-tight">{session.title}</div>
+        <div className="w-full max-w-2xl animate-fade-in">
+          <Wordmark />
+          <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight md:text-6xl">{title}</h1>
 
-          <div className="mt-8 flex items-center justify-center gap-2">
-            <span className="bounce-dot w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
-            <span className="bounce-dot w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
-            <span className="bounce-dot w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
+          <div className="mx-auto mt-10 flex h-20 w-20 items-center justify-center rounded-full border border-accent/30 bg-accent-soft animate-reveal-pulse">
+            <GlassWater className="h-9 w-9 text-accent" />
           </div>
-          <div className="text-zinc-400 mt-4 text-sm">Waiting for the host…</div>
 
-          <div className="mt-6 text-xs text-zinc-500 max-w-xs mx-auto leading-relaxed">
+          <div className="mt-8 text-lg font-semibold">
+            {isRevealReady ? "Soft reveal is live" : "Tasting in progress"}
+          </div>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-fg-muted">
             {isRevealReady
-              ? "SOFT REVEAL is live — Packaging + Value scoring is open. BIG REVEAL is coming next."
-              : "Once BIG REVEAL happens, bottle names + winners will appear here."}
-          </div>
+              ? "Tasters are scoring packaging and value. The big reveal is next."
+              : "Bottle names and winners will appear here the moment the host starts the big reveal."}
+          </p>
+
+          <Button variant="ghost" size="sm" className="mt-8" onClick={() => void runLoad()} disabled={refreshing}>
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </Button>
         </div>
       </main>
     );
   }
 
-  // ---------- BIG REVEAL (cinematic) ----------
-  const title = session.title;
+  const pourSubtitle = (p: PourRow) =>
+    displayPourName(p) !== `Pour ${p.code}` ? `Pour ${p.code}` : null;
 
-  // Final Results screen
+  // ---------- Final Results ----------
   if (isFinalStep) {
+    const podium = pourStats.slice(0, 3);
+    const divisiveSpread = (mostDivisivePour?.spread ?? 0) >= 0.05;
+
     return (
-      <main className="min-h-screen bg-black text-white p-6">
+      <PageShell width="xl">
         <ConnectionBanner />
-        {shareHint ? (
-          <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-100 shadow-lg">
-            {shareHint}
-          </div>
-        ) : null}
-        <div className="max-w-6xl mx-auto">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 shadow-xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-sm text-zinc-400">FINAL RESULTS</div>
-                <div className="mt-2 text-4xl font-extrabold tracking-tight">{title}</div>
-              </div>
-              <button
-                onClick={() => {
-                  const lines = [
-                    `🥃 ${title} — Final Results`,
-                    "",
-                    "Overall Ranking:",
-                    ...pourStats.map((ps, i) => {
-                      const rank = pourRankMeta[ps.pour.id];
-                      const medal = rank?.rank === 1 ? "🥇" : rank?.rank === 2 ? "🥈" : rank?.rank === 3 ? "🥉" : `#${rank?.rank ?? i + 1}`;
-                      return `${medal} ${displayPourName(ps.pour)} — ${ps.avgTotal.toFixed(1)}/100`;
-                    }),
-                  ].join("\n");
-                  navigator.clipboard.writeText(lines).catch(() => {});
-                }}
-                className="shrink-0 rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
-              >
-                Copy Results
-              </button>
-            </div>
+        <Toast message={shareHint} />
 
-            <div className="mt-6 rounded-3xl border border-amber-500/30 bg-amber-500/10 p-6">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:justify-between">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">
-                    Shareable Recap
-                  </div>
-                  <div className="mt-2 text-2xl font-extrabold text-white">
-                    {overallWinner ? displayPourName(overallWinner.pour) : "Results are still forming"}
-                  </div>
-                  <div className="mt-2 text-sm text-zinc-300">
-                    {formatDate(session.created_at)} - {participants.length} tasters - {pours.length} pours
-                  </div>
-                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    {pourStats.slice(0, 3).map((row, index) => (
-                      <div
-                        key={`recap-${row.pour.id}`}
-                        className="rounded-2xl border border-zinc-800 bg-black/30 px-4 py-3"
-                      >
-                        <div className="text-xs text-zinc-500">#{index + 1}</div>
-                        <div className="mt-1 truncate text-sm font-semibold text-zinc-100">
-                          {displayPourName(row.pour)}
-                        </div>
-                        <div className="mt-1 text-lg font-extrabold tabular-nums text-amber-300">
-                          {row.avgTotal.toFixed(1)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+        <header className="flex items-center justify-between gap-4">
+          <Wordmark />
+          <Button variant="ghost" size="sm" onClick={refresh} disabled={refreshing} className="-mr-3">
+            <RefreshCw className={cx("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </Button>
+        </header>
 
-                <div className="flex shrink-0 flex-col justify-end gap-2 sm:flex-row lg:flex-col">
-                  <button
-                    onClick={downloadRecapCard}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-3 text-sm font-extrabold text-black hover:bg-amber-600"
-                  >
-                    <Download className="h-4 w-4" /> Download Card
-                  </button>
-                  <button
-                    onClick={shareResults}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
-                  >
-                    <Share2 className="h-4 w-4" /> Share Results
-                  </button>
-                  <button
-                    onClick={copyResults}
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
-                  >
-                    Copy Full Recap
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Winner card */}
-              <div className="bg-black/40 border border-zinc-800 rounded-3xl p-6">
-                <div className="text-xs text-zinc-400">Overall Winner</div>
-                <div className="text-3xl font-extrabold mt-2">
-                  {overallWinner ? displayPourName(overallWinner.pour) : "—"}
-                </div>
-                <div className="text-zinc-400 mt-2">
-                  Avg:{" "}
-                  <span className="font-semibold text-white">
-                    {overallWinner ? overallWinner.avgTotal.toFixed(1) : "0.0"}
-                  </span>{" "}
-                  / 100 • Scorecards: {overallWinner ? overallWinner.count : 0}
-                </div>
-              </div>
-
-              {/* Category shoutouts (ALL categories) */}
-              <div className="bg-black/40 border border-zinc-800 rounded-3xl p-6">
-                <div className="text-xs text-zinc-400">Category Shoutouts</div>
-                <div className="mt-4 space-y-2">
-                  {categoryWinners.map((w) => (
-                    <div key={w.label} className="grid grid-cols-[120px_1fr] gap-3 items-baseline">
-                      <div className="text-zinc-400 font-semibold text-sm shrink-0">Best {w.label}:</div>
-                      <div className="text-zinc-100 text-sm">
-                        <span className="font-extrabold">
-                          {w.pour ? displayPourName(w.pour) : "—"}
-                        </span>{" "}
-                        <span className="text-zinc-500 text-xs">({w.value.toFixed(1)}/{w.max})</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Full ranking (Top → Bottom) */}
-            <div className="mt-6 bg-black/40 border border-zinc-800 rounded-3xl p-6">
-              <div className="text-sm text-zinc-400">Full Ranking (Top → Bottom)</div>
-
-              <div className="mt-4 space-y-3">
-                {pourStats.map((ps) => {
-                  const rank = pourRankMeta[ps.pour.id];
-
-                  return (
-                    <div
-                      key={ps.pour.id}
-                      className="flex items-center justify-between gap-4 bg-black/30 border border-zinc-900 rounded-2xl px-4 py-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={[
-                          "rounded-full px-3 py-1 text-xs font-extrabold border",
-                          rank?.rank === 1 ? "bg-amber-500/20 border-amber-500/50 text-amber-300" : "bg-zinc-900 border-zinc-800",
-                        ].join(" ")}>
-                          {rank?.rank === 1 ? "🥇" : formatRankLabel(rank)}
-                        </div>
-                        <div>
-                          <div className="font-semibold">{displayPourName(ps.pour)}</div>
-                          <div className="text-xs text-zinc-500">
-                            {ps.pour.bottle_name ? ps.pour.bottle_name : "Bottle name not set"}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-2xl font-extrabold tabular-nums">{ps.avgTotal.toFixed(1)}</div>
-                        <div className="text-xs text-zinc-500">Avg / 100</div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {pourStats.length === 0 && <div className="text-zinc-400">No pours/scores yet.</div>}
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="rounded-3xl border border-zinc-800 bg-black/40 p-6 lg:col-span-2">
-                <div className="text-sm text-zinc-400">Your Post-Reveal Recap</div>
-                {personalRecap ? (
-                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-                    <div className="rounded-2xl border border-zinc-900 bg-black/30 px-4 py-4">
-                      <div className="text-xs text-zinc-500">Your #1</div>
-                      <div className="mt-1 font-extrabold text-zinc-100">
-                        {displayPourName(personalRecap.top.pour)}
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-500">
-                        Group had it {formatRankLabel(personalRecap.topGroupRank)}.
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-900 bg-black/30 px-4 py-4">
-                      <div className="text-xs text-zinc-500">You Liked More Than The Group</div>
-                      <div className="mt-1 font-extrabold text-zinc-100">
-                        {personalRecap.higherThanGroup
-                          ? displayPourName(personalRecap.higherThanGroup.pour)
-                          : "-"}
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-500">
-                        {personalRecap.higherThanGroup
-                          ? `${personalRecap.higherThanGroup.delta >= 0 ? "+" : ""}${personalRecap.higherThanGroup.delta.toFixed(
-                              1
-                            )} vs group avg`
-                          : "No scores to compare yet."}
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-900 bg-black/30 px-4 py-4">
-                      <div className="text-xs text-zinc-500">Biggest Surprise</div>
-                      <div className="mt-1 font-extrabold text-zinc-100">
-                        {personalRecap.biggestSurprise
-                          ? displayPourName(personalRecap.biggestSurprise.pour)
-                          : "-"}
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-500">
-                        {personalRecap.biggestSurprise
-                          ? `You: ${formatRankLabel(
-                              personalRecap.biggestSurprise.userRank
-                            )}; group: ${formatRankLabel(personalRecap.biggestSurprise.groupRank)}.`
-                          : "No ranking split yet."}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-2xl border border-zinc-900 bg-black/30 px-4 py-4 text-sm text-zinc-500">
-                    Open this results link from the phone you used to score to see your personal recap.
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-3xl border border-zinc-800 bg-black/40 p-6">
-                <div className="text-sm text-zinc-400">Most Divisive Pour</div>
-                <div className="mt-3 text-2xl font-extrabold">
-                  {mostDivisivePour ? displayPourName(mostDivisivePour.pour) : "-"}
-                </div>
-                <div className="mt-2 text-sm text-zinc-500">
-                  {mostDivisivePour
-                    ? `Score spread ${mostDivisivePour.spread.toFixed(1)} across ${mostDivisivePour.scores.length} tasters.`
-                    : "Need at least two scorecards for a spread."}
-                </div>
-              </div>
-            </div>
-
-            {/* Per-user full rankings */}
-            <div className="mt-6 bg-black/40 border border-zinc-800 rounded-3xl p-6">
-              <div className="text-sm text-zinc-400">Each Taster’s Ranking</div>
-
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                {participants.map((u) => {
-                  const uStats = perUserRankings[u.id];
-                  const ranking = uStats?.ranking || [];
-
-                  return (
-                    <div key={u.id} className="bg-black/30 border border-zinc-900 rounded-3xl p-5">
-                      <div className="text-xs text-zinc-500">{u.display_name}</div>
-
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {uStats?.best ? (
-                          <span className={chipClass({ kind: "best", value: uStats.best.total, max: 100 })}>
-                            WINNER: {displayPourName(uStats.best.pour)} ({uStats.best.total.toFixed(0)}/100)
-                          </span>
-                        ) : null}
-                        {uStats?.least ? (
-                          <span className={chipClass({ kind: "least", value: uStats.least.total, max: 100 })}>
-                            LEAST FAVORITE: {displayPourName(uStats.least.pour)} ({uStats.least.total.toFixed(0)}/100)
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-4 space-y-2">
-                        {ranking.length ? (
-                          ranking.map((r) => {
-                            const rank = perUserRankMeta[u.id]?.[r.pour.id];
-
-                            return (
-                              <div
-                                key={`${u.id}-${r.pour.id}`}
-                                className="flex items-center justify-between gap-3 bg-black/20 border border-zinc-900 rounded-2xl px-3 py-2"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div className="rounded-full bg-zinc-900 border border-zinc-800 px-3 py-1 text-[11px] font-extrabold">
-                                    {formatRankLabel(rank)}
-                                  </div>
-                                  <div className="font-semibold">{displayPourName(r.pour)}</div>
-                                </div>
-                                <div className="text-zinc-200 font-extrabold tabular-nums">
-                                  {r.total.toFixed(0)}
-                                  <span className="text-xs text-zinc-500 font-semibold">/100</span>
-                                </div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <div className="text-sm text-zinc-500">No scores from this taster yet.</div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-col md:flex-row gap-3">
-              <button
-                onClick={() => setCinematicStep(0)}
-                className="w-full md:w-auto px-5 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-semibold"
-              >
-                Restart Cinematic (Last → First)
-              </button>
-
-              <button
-                onClick={refresh}
-                disabled={refreshing}
-                className="flex items-center justify-center gap-2 w-full md:w-auto px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-black font-extrabold disabled:opacity-60"
-              >
-                <RefreshCw className={["w-4 h-4", refreshing ? "animate-spin" : ""].join(" ")} />
-                {refreshing ? "Refreshing…" : "Refresh Data"}
-              </button>
-            </div>
-
-            <div className="mt-6 text-center text-xs text-zinc-600">Cask Unknown • Dark Reveal Mode</div>
-          </div>
+        <div className="mt-8">
+          <Eyebrow>Final results</Eyebrow>
+          <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight md:text-5xl">{title}</h1>
+          <p className="mt-2 text-sm text-fg-muted">
+            {formatDate(session.created_at)} · {participants.length} tasters · {pours.length} pours
+          </p>
         </div>
-      </main>
+
+        {/* Podium */}
+        {podium.length ? (
+          <div className="mt-8 grid gap-3 md:grid-cols-3">
+            {podium.map((row, index) => {
+              const rank = pourRankMeta[row.pour.id];
+              const isFirst = rank?.rank === 1;
+              return (
+                <div
+                  key={`podium-${row.pour.id}`}
+                  className={cx(
+                    "rounded-3xl border p-6",
+                    isFirst
+                      ? "border-accent/40 bg-accent-soft md:order-2 md:-mt-4 md:pb-10"
+                      : index === 1
+                        ? "border-line bg-surface md:order-1"
+                        : "border-line bg-surface md:order-3",
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={cx("text-xs font-semibold uppercase tracking-[0.14em]", isFirst ? "text-accent" : "text-fg-faint")}>
+                      {formatRankLabel(rank || { rank: index + 1, tied: false, size: 1 })}
+                    </span>
+                    {isFirst ? <Trophy className="h-6 w-6 text-accent" /> : null}
+                  </div>
+                  <div className={cx("mt-3 font-display font-semibold leading-tight", isFirst ? "text-3xl" : "text-2xl")}>
+                    {displayPourName(row.pour)}
+                  </div>
+                  {pourSubtitle(row.pour) ? (
+                    <div className="mt-0.5 text-xs text-fg-faint">{pourSubtitle(row.pour)}</div>
+                  ) : null}
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className={cx("font-display font-semibold tabular-nums", isFirst ? "text-5xl text-accent" : "text-4xl")}>
+                      {row.avgTotal.toFixed(1)}
+                    </span>
+                    <span className="text-sm text-fg-faint">/ 100</span>
+                  </div>
+                  <div className="mt-1 text-xs text-fg-faint">{row.count} scorecards</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <Card className="mt-8 text-center text-fg-muted">No scores yet.</Card>
+        )}
+
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Button variant="primary" onClick={downloadRecapCard}>
+            <Download className="h-4 w-4" /> Download recap card
+          </Button>
+          <Button variant="secondary" onClick={shareResults}>
+            <Share2 className="h-4 w-4" /> Share results
+          </Button>
+          <Button variant="ghost" onClick={copyResults}>
+            <Copy className="h-4 w-4" /> Copy as text
+          </Button>
+        </div>
+
+        <div className="mt-8 grid gap-4 lg:grid-cols-5">
+          {/* Full ranking */}
+          <Card className="lg:col-span-3" padded={false}>
+            <div className="px-5 pt-5">
+              <Eyebrow>Full ranking</Eyebrow>
+            </div>
+            <ol className="mt-3">
+              {pourStats.map((ps) => {
+                const rank = pourRankMeta[ps.pour.id];
+                return (
+                  <li key={ps.pour.id} className="flex items-center gap-4 border-t border-line px-5 py-3.5">
+                    <span
+                      className={cx(
+                        "w-16 shrink-0 text-xs font-bold",
+                        rank?.rank === 1 ? "text-accent" : "text-fg-faint",
+                      )}
+                    >
+                      {formatRankLabel(rank)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold">{displayPourName(ps.pour)}</div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sunken">
+                        <div
+                          className={cx("h-full rounded-full", rank?.rank === 1 ? "bg-accent" : "bg-fg-faint")}
+                          style={{ width: `${Math.min(100, Math.max(0, ps.avgTotal))}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="w-12 shrink-0 text-right font-display text-xl font-semibold tabular-nums">
+                      {ps.avgTotal.toFixed(1)}
+                    </span>
+                  </li>
+                );
+              })}
+              {pourStats.length === 0 && <li className="border-t border-line px-5 py-4 text-fg-muted">No pours or scores yet.</li>}
+            </ol>
+          </Card>
+
+          {/* Category winners */}
+          <Card className="lg:col-span-2">
+            <Eyebrow>Best in category</Eyebrow>
+            <dl className="mt-3 divide-y divide-line">
+              {categoryWinners.map((w) => (
+                <div key={w.label} className="flex items-baseline justify-between gap-3 py-2">
+                  <dt className="text-sm text-fg-muted">{w.label}</dt>
+                  <dd className="min-w-0 text-right text-sm">
+                    <span className="font-semibold">{w.pour ? displayPourName(w.pour) : "—"}</span>{" "}
+                    <span className="text-xs tabular-nums text-fg-faint">
+                      {w.value.toFixed(1)}/{w.max}
+                    </span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <Eyebrow>Your recap</Eyebrow>
+            {personalRecap ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl bg-sunken px-4 py-4">
+                  <div className="text-xs text-fg-faint">Your #1</div>
+                  <div className="mt-1 font-semibold">{displayPourName(personalRecap.top.pour)}</div>
+                  <div className="mt-1 text-xs text-fg-muted">
+                    The group had it {formatRankLabel(personalRecap.topGroupRank)}.
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-sunken px-4 py-4">
+                  <div className="text-xs text-fg-faint">You liked it more than the group</div>
+                  <div className="mt-1 font-semibold">
+                    {personalRecap.higherThanGroup ? displayPourName(personalRecap.higherThanGroup.pour) : "—"}
+                  </div>
+                  <div className="mt-1 text-xs text-fg-muted">
+                    {personalRecap.higherThanGroup
+                      ? `${personalRecap.higherThanGroup.delta >= 0 ? "+" : ""}${personalRecap.higherThanGroup.delta.toFixed(1)} vs the group average`
+                      : "No scores to compare yet."}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-sunken px-4 py-4">
+                  <div className="text-xs text-fg-faint">Biggest surprise</div>
+                  <div className="mt-1 font-semibold">
+                    {personalRecap.biggestSurprise ? displayPourName(personalRecap.biggestSurprise.pour) : "—"}
+                  </div>
+                  <div className="mt-1 text-xs text-fg-muted">
+                    {personalRecap.biggestSurprise
+                      ? `You: ${formatRankLabel(personalRecap.biggestSurprise.userRank)} · group: ${formatRankLabel(personalRecap.biggestSurprise.groupRank)}`
+                      : "No ranking split yet."}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-fg-muted">
+                Open this page on the phone you scored with to see how your picks compared.
+              </p>
+            )}
+          </Card>
+
+          <Card>
+            <Eyebrow>Most divisive</Eyebrow>
+            <div className="mt-3 font-display text-2xl font-semibold">
+              {!mostDivisivePour ? "—" : divisiveSpread ? displayPourName(mostDivisivePour.pour) : "Nobody"}
+            </div>
+            <p className="mt-1 text-sm text-fg-muted">
+              {!mostDivisivePour
+                ? "Needs at least two scorecards per pour."
+                : divisiveSpread
+                  ? `Scores spread ±${mostDivisivePour.spread.toFixed(1)} across ${mostDivisivePour.scores.length} tasters.`
+                  : "Every taster gave each pour the same total."}
+            </p>
+          </Card>
+        </div>
+
+        {/* Per-taster rankings */}
+        <section className="mt-8">
+          <Eyebrow>Each taster&apos;s ranking</Eyebrow>
+          <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {participants.map((u) => {
+              const uStats = perUserRankings[u.id];
+              const ranking = uStats?.ranking || [];
+              const isYou = u.id === currentParticipantId;
+
+              return (
+                <Card key={u.id} padded={false} className={cx(isYou && "border-accent/40")}>
+                  <div className="flex items-center gap-3 px-5 pt-5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display font-semibold text-accent">
+                      {u.display_name.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 truncate font-semibold">
+                      {u.display_name}
+                      {isYou ? <span className="ml-1.5 text-xs font-normal text-fg-faint">(you)</span> : null}
+                    </span>
+                  </div>
+                  <ol className="mt-3">
+                    {ranking.length ? (
+                      ranking.map((r) => {
+                        const rank = perUserRankMeta[u.id]?.[r.pour.id];
+                        const isTop = uStats?.best?.pour.id === r.pour.id;
+                        const isBottom = uStats?.least?.pour.id === r.pour.id && ranking.length > 1;
+                        return (
+                          <li
+                            key={`${u.id}-${r.pour.id}`}
+                            className="flex items-center justify-between gap-3 border-t border-line px-5 py-2.5"
+                          >
+                            <span className="flex min-w-0 items-center gap-3">
+                              <span className="w-14 shrink-0 text-[11px] font-bold text-fg-faint">
+                                {formatRankLabel(rank)}
+                              </span>
+                              <span
+                                className={cx(
+                                  "truncate text-sm font-semibold",
+                                  isTop ? "text-success" : isBottom ? "text-danger" : "text-fg",
+                                )}
+                              >
+                                {displayPourName(r.pour)}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-sm font-bold tabular-nums">
+                              {r.total.toFixed(0)}
+                              <span className="text-xs font-normal text-fg-faint">/100</span>
+                            </span>
+                          </li>
+                        );
+                      })
+                    ) : (
+                      <li className="border-t border-line px-5 py-3 text-sm text-fg-muted">No scores from this taster.</li>
+                    )}
+                  </ol>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="mt-8 flex justify-center">
+          <Button variant="secondary" onClick={() => setCinematicStep(0)}>
+            <Play className="h-4 w-4" /> Replay the reveal
+          </Button>
+        </div>
+      </PageShell>
     );
   }
 
-  // Cinematic pour screen
+  // ---------- Cinematic pour screen (built for a TV) ----------
   const ps = activeCinematic;
 
   const placeMeta = ps ? pourRankMeta[ps.pour.id] : null;
   const placeFromTop = placeMeta?.rank ?? 0;
   const isWinner = placeFromTop === 1 && pours.length > 0;
-
   const totalPlaces = Math.max(0, pours.length);
 
   return (
-    <main className="min-h-screen bg-black text-white p-6">
+    <main className="flex min-h-dvh flex-col bg-canvas px-4 pb-6 text-fg sm:px-8" style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top))" }}>
       <ConnectionBanner />
-      <div className="max-w-6xl mx-auto">
-        <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-8 shadow-xl">
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <div className="text-sm text-zinc-400 uppercase tracking-widest">BIG REVEAL</div>
-              <div className="mt-2 text-4xl font-extrabold tracking-tight">{title}</div>
-              {placeMeta?.tied ? (
-                <div className="mt-2 text-sm font-semibold text-amber-400">{formatRankLabel(placeMeta)}</div>
-              ) : null}
-              <div className="text-zinc-400 mt-2 text-sm">
-                Step {cinematicStep + 1} / {stepCount} • Revealing from last place → #1
-              </div>
-            </div>
 
-            {/* Place badge */}
-            <div className="shrink-0">
-              <div className={[
-                "border rounded-3xl px-8 py-6 text-center min-w-[150px] transition-all duration-300",
-                isWinner
-                  ? "bg-amber-500/15 border-amber-500/50 shadow-[0_0_32px_rgba(245,158,11,0.3)]"
-                  : "bg-black/40 border-zinc-800",
-              ].join(" ")}>
-                <div className="text-xs uppercase tracking-widest text-zinc-400">Place</div>
-                {isWinner ? (
-                  <div className="mt-2 flex justify-center">
-                    <Trophy className="w-14 h-14 text-amber-400" strokeWidth={1.5} />
-                  </div>
-                ) : (
-                  <div className="mt-2 text-7xl leading-none font-extrabold tabular-nums">
-                    {placeFromTop || "—"}
-                  </div>
-                )}
-                <div className="mt-2 text-sm text-zinc-500">
-                  of <span className="font-semibold text-zinc-300">{totalPlaces || "—"}</span>
-                </div>
-              </div>
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+        <div className="min-w-0">
+          <Wordmark />
+          <div className="truncate text-xs text-fg-faint">{title}</div>
+        </div>
+        <div className="flex items-center gap-1.5" aria-label={`Step ${cinematicStep + 1} of ${stepCount}`}>
+          {Array.from({ length: stepCount }).map((_, i) => (
+            <span
+              key={i}
+              className={cx(
+                "h-1.5 rounded-full transition-all",
+                i === cinematicStep ? "w-6 bg-accent" : i < cinematicStep ? "w-1.5 bg-accent/50" : "w-1.5 bg-line-strong",
+              )}
+            />
+          ))}
+        </div>
+      </header>
+
+      <div key={cinematicStep} className="mx-auto mt-8 w-full max-w-6xl flex-1 animate-fade-slide-in">
+        <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+          <div className="min-w-0">
+            <div
+              className={cx(
+                "inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-bold",
+                isWinner ? "border-accent bg-accent text-on-accent" : "border-line-strong text-fg-muted",
+              )}
+            >
+              {isWinner ? <Trophy className="h-4 w-4" /> : null}
+              {isWinner
+                ? placeMeta?.tied
+                  ? "Tied for the win"
+                  : "The winner"
+                : placeMeta?.tied
+                  ? `Tied for ${formatOrdinal(placeFromTop)} of ${totalPlaces}`
+                  : `${placeFromTop ? formatOrdinal(placeFromTop) : "—"} of ${totalPlaces}`}
             </div>
+            <h1
+              className={cx(
+                "mt-4 font-display font-semibold leading-[1.05] tracking-tight",
+                isWinner ? "text-5xl text-accent sm:text-6xl md:text-8xl" : "text-4xl sm:text-5xl md:text-7xl",
+              )}
+            >
+              {ps ? displayPourName(ps.pour) : "—"}
+            </h1>
+            {ps && pourSubtitle(ps.pour) ? (
+              <div className="mt-2 text-lg text-fg-muted">{pourSubtitle(ps.pour)}</div>
+            ) : null}
           </div>
 
-          {/* Main card — key forces re-mount animation on each step */}
-          <div key={cinematicStep} className="mt-6 bg-black/40 border border-zinc-800 rounded-3xl p-6 animate-fade-slide-in">
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-              <div>
-                <div className="text-xs text-zinc-500">Pour</div>
-                <div className="text-5xl font-extrabold mt-1">{ps ? displayPourName(ps.pour) : "—"}</div>
-                <div className="text-zinc-500 mt-2">
-                  {ps?.pour.bottle_name ? ps.pour.bottle_name : "Bottle name not set"}
-                </div>
-
-                {/* Shoutout chips */}
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {shoutoutChipsForPour.length ? (
-                    shoutoutChipsForPour.map((c, i) => (
-                      <span
-                        key={`${i}-${c.text}`}
-                        className={chipClass({ kind: c.kind, value: c.value, max: c.max })}
-                      >
-                        {c.text}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-zinc-500">No shoutouts yet (need more scores).</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="text-right">
-                <div className="text-xs text-zinc-500">Average Score</div>
-                <div className="text-6xl font-extrabold tabular-nums mt-1">
-                  {ps ? ps.avgTotal.toFixed(1) : "0.0"}
-                </div>
-                <div className="text-zinc-500 mt-1 text-sm">
-                  Avg / 100 • {ps ? ps.count : 0} scorecards
-                </div>
-              </div>
+          <div className="shrink-0 md:text-right">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-faint">Average score</div>
+            <div className="font-display text-6xl font-semibold tabular-nums md:text-7xl">
+              {ps ? ps.avgTotal.toFixed(1) : "0.0"}
             </div>
-
-            {/* ALL categories tiles (avg per category) - text-only color (no yellow) */}
-            <div className="mt-6 grid grid-cols-2 md:grid-cols-5 gap-3">
-              {CATEGORY.map((c) => {
-                const v = ps ? clamp01(ps.avgByCat[c.key] ?? 0) : 0;
-                const colors = scoreColor(v, c.max);
-
-                return (
-                  <div key={c.key} className="border border-zinc-800 rounded-2xl p-4 bg-black/20">
-                    <div className="text-xs text-zinc-400">{c.label}</div>
-                    <div
-                      className={[
-                        "mt-1 text-2xl font-extrabold tabular-nums",
-                        colors.text,
-                        colors.glow,
-                      ].join(" ")}
-                    >
-                      {v.toFixed(1)}
-                      <span className="text-xs text-zinc-500 font-semibold">/{c.max}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-6 bg-black/20 border border-zinc-800 rounded-2xl p-4">
-              <div className="text-xs text-zinc-400">Taster Notes</div>
-              <div className="mt-3 space-y-3">
-                {notesForActivePour.length ? (
-                  notesForActivePour.map((row, idx) => (
-                    <div
-                      key={`${row.participantName}-${idx}`}
-                      className="border-b border-zinc-900 pb-3 last:border-b-0 last:pb-0"
-                    >
-                      <div className="text-sm font-semibold text-zinc-200">{row.participantName} says:</div>
-                      <div className="mt-1 text-sm text-zinc-400">{row.notes}</div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-sm text-zinc-500">No tasting notes were saved for this pour.</div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Controls */}
-          <div className="mt-6 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-            <button
-              onClick={() => setCinematicStep((s) => Math.max(0, s - 1))}
-              disabled={cinematicStep === 0}
-              className={[
-                "flex items-center justify-center gap-2 px-5 py-3 rounded-2xl font-semibold border",
-                cinematicStep === 0
-                  ? "bg-zinc-900/40 border-zinc-800 text-zinc-500 cursor-not-allowed"
-                  : "bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-white",
-              ].join(" ")}
-            >
-              <ChevronLeft className="w-4 h-4" /> Prev
-            </button>
-
-            <button
-              onClick={() => setCinematicStep(cinematicList.length)}
-              className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl font-semibold bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white"
-            >
-              <SkipForward className="w-4 h-4" /> Skip to Final Results
-            </button>
-
-            <button
-              onClick={() => setCinematicStep((s) => Math.min(cinematicList.length, s + 1))}
-              className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-extrabold bg-amber-500 hover:bg-amber-600 text-black"
-            >
-              Next <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="mt-4 text-xs text-zinc-600">
-            Tip: This screen is meant for TV/iPad. Tap Next to climb from last place to #1.
+            <div className="text-sm text-fg-faint">out of 100 · {ps ? ps.count : 0} scorecards</div>
           </div>
         </div>
+
+        <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-5">
+          {CATEGORY.map((c) => {
+            const v = ps ? clamp01(ps.avgByCat[c.key] ?? 0) : 0;
+            const colors = scoreColor(v, c.max);
+
+            return (
+              <div key={c.key} className="rounded-2xl border border-line bg-surface p-4">
+                <div className="text-xs text-fg-muted">{c.label}</div>
+                <div className={cx("mt-1 text-2xl font-bold tabular-nums", colors.text, colors.glow)}>
+                  {v.toFixed(1)}
+                  <span className="text-xs font-semibold text-fg-faint">/{c.max}</span>
+                </div>
+                <div className="mt-2 h-1 overflow-hidden rounded-full bg-sunken">
+                  <div className={cx("h-full rounded-full", colors.bar)} style={{ width: `${ratio(v, c.max) * 100}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {shoutoutChipsForPour.length ? (
+          <div className="mt-6 flex flex-wrap gap-2">
+            {shoutoutChipsForPour.map((c, i) => (
+              <span key={`${i}-${c.text}`} className={chipClass(c.kind)}>
+                {c.text}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {notesForActivePour.length ? (
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            {notesForActivePour.map((row, idx) => (
+              <figure key={`${row.participantName}-${idx}`} className="rounded-2xl border border-line bg-surface p-4">
+                <blockquote className="font-display text-lg leading-snug text-fg">“{row.notes}”</blockquote>
+                <figcaption className="mt-2 text-xs font-semibold text-fg-faint">{row.participantName}</figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : null}
       </div>
+
+      <div className="mx-auto mt-8 flex w-full max-w-6xl items-center justify-between gap-2">
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => setCinematicStep((s) => Math.max(0, s - 1))}
+          disabled={cinematicStep === 0}
+          aria-label="Previous"
+        >
+          <ChevronLeft className="h-5 w-5" /> <span className="hidden sm:inline">Back</span>
+        </Button>
+
+        <Button variant="ghost" onClick={() => setCinematicStep(cinematicList.length)}>
+          <SkipForward className="h-4 w-4" /> Skip to results
+        </Button>
+
+        <Button variant="primary" size="lg" onClick={() => setCinematicStep((s) => Math.min(cinematicList.length, s + 1))}>
+          {cinematicStep >= cinematicList.length - 1 ? "Final results" : "Next"} <ChevronRight className="h-5 w-5" />
+        </Button>
+      </div>
+      <p className="mt-3 hidden text-center text-xs text-fg-faint md:block">
+        Revealing from last place to first. Arrow keys, space, or a presentation clicker work too.
+      </p>
     </main>
   );
 }

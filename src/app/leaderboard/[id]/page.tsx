@@ -15,21 +15,22 @@ type PublicProfileRow = {
 };
 
 type PublicUserProfilePageProps = {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
 export default async function PublicUserProfilePage({
   params,
 }: PublicUserProfilePageProps) {
   noStore();
-  const viewerSupabase = createSupabaseServerClient();
+  const { id } = await params;
+  const viewerSupabase = await createSupabaseServerClient();
 
   const { data: publicProfileData, error: publicProfileError } = await viewerSupabase
     .from("public_profiles")
     .select("user_id,display_name,is_public")
-    .eq("user_id", params.id)
+    .eq("user_id", id)
     .maybeSingle();
 
   if (publicProfileError) {
@@ -45,8 +46,8 @@ export default async function PublicUserProfilePage({
   const displayName = publicProfile.display_name?.trim() || "Anonymous";
   const readOnlySupabase = viewerSupabase;
   const [canonicalProfileName, publicRateHistory] = await Promise.all([
-    loadCanonicalProfileDisplayName(readOnlySupabase, params.id, displayName),
-    loadCanonicalPublicRateHistory(readOnlySupabase, params.id),
+    loadCanonicalProfileDisplayName(readOnlySupabase, id, displayName),
+    loadCanonicalPublicRateHistory(readOnlySupabase, id),
   ]);
 
   return (
@@ -86,7 +87,7 @@ export default async function PublicUserProfilePage({
             blind tasting identity.
           </div>
           <ReadOnlyHistorySection
-            userId={params.id}
+            userId={id}
             displayName={displayName}
             profileName={canonicalProfileName}
             initialRateHistory={publicRateHistory}

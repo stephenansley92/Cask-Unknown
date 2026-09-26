@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -12,10 +12,12 @@
 
 # testing
 /coverage
+/artifacts/
 
 # next.js
-/.next/
+.next/
 /out/
+dist/
 
 # production
 /build
@@ -29,9 +31,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.next-dev.log
+.next-dev.err.log
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -41,28 +46,12 @@ yarn-error.log*
 next-env.d.ts
 
 # Large installers
-Codex.dmg
 *.dmg
-
 
 # Visual Studio / VS Code
 .vs/
 .vscode/
 
-# Node
-node_modules/
-.next/
-out/
-dist/
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Env
-.env
-.env.local
-.env.*.local
-
+# Claude Code (machine-local settings and worktrees)
+.claude/settings.local.json
+.claude/worktrees/

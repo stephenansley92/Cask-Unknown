@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, GlassWater, Trophy, UserRound } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -10,6 +11,18 @@ import {
   getProfileOptions,
   saveProfileOption,
 } from "@/lib/profiles";
+import {
+  getPublicSession,
+  joinSession,
+  resumeSessionParticipant,
+} from "@/lib/session-api";
+import { errorMessage, logEvent, newCorrelationId, userFacingError } from "@/lib/log";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { LoadingScreen, Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { cx } from "@/components/ui/cx";
 
 type SessionRow = {
   id: string;
@@ -24,6 +37,7 @@ type ParticipantRow = {
   session_id: string;
   display_name: string;
   user_id?: string | null;
+  access_token: string;
   created_at?: string;
 };
 
@@ -41,14 +55,16 @@ export default function JoinPage() {
 
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<SessionRow | null>(null);
-  const [error, setError] = useState("");
+  // loadError replaces the page; formError sits under the join form.
+  const [loadError, setLoadError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [sessionEnded, setSessionEnded] = useState(false);
 
   const [selectedProfile, setSelectedProfile] = useState("");
   const [customProfileName, setCustomProfileName] = useState("");
   const [profileOptions, setProfileOptions] = useState<string[]>([]);
   const [lockedProfileName, setLockedProfileName] = useState("");
   const [authUserId, setAuthUserId] = useState("");
-  const [isOwner, setIsOwner] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [existingParticipant, setExistingParticipant] =
@@ -60,10 +76,17 @@ export default function JoinPage() {
   }, [sessionId]);
 
   useEffect(() => {
+    const failLoad = (event: string, base: string, cause: unknown) => {
+      const ref = newCorrelationId();
+      logEvent("error", event, { ref, sessionId, message: errorMessage(cause) });
+      setLoadError(userFacingError(base, ref));
+      setLoading(false);
+    };
+
     const run = async () => {
       try {
         setLoading(true);
-        setError("");
+        setLoadError("");
         setProfileOptions(getProfileOptions());
 
         const authClient = createSupabaseBrowserClient();
@@ -76,7 +99,6 @@ export default function JoinPage() {
 
         const ownerMatch =
           (user?.email || "").trim().toLowerCase() === OWNER_EMAIL;
-        setIsOwner(ownerMatch);
         setAuthUserId(user?.id || "");
 
         let enforcedProfileName = "";
@@ -89,8 +111,7 @@ export default function JoinPage() {
             .maybeSingle();
 
           if (profileError) {
-            setError(profileError.message);
-            setLoading(false);
+            failLoad("join.profile_load_failed", "We couldn't load your profile.", profileError);
             return;
           }
 
@@ -111,20 +132,19 @@ export default function JoinPage() {
         }
 
         if (!sessionId) {
-          setError("Missing session id.");
+          setLoadError("This join link is missing its session.");
           setLoading(false);
           return;
         }
 
-        const { data: sess, error: sessErr } = await supabase
-          .from("sessions")
-          .select("id,title,is_blind,status,created_at")
-          .eq("id", sessionId)
-          .single();
+        const { data: sess, error: sessErr } = await getPublicSession(supabase, sessionId);
 
-        if (sessErr) {
-          setError(sessErr.message);
-          setLoading(false);
+        if (sessErr || !sess) {
+          failLoad(
+            "join.session_load_failed",
+            "We couldn't find that tasting. Check the link, or ask the host for a fresh QR code.",
+            sessErr ?? "no session",
+          );
           return;
         }
 
@@ -133,9 +153,7 @@ export default function JoinPage() {
         // Block joining sessions that are already past the scoring phase
         const sStatus = ((sess as SessionRow).status || "").toLowerCase();
         if (sStatus === "revealed" || sStatus === "closed") {
-          setError(
-            `This session has already ended (status: ${(sess as SessionRow).status}). Ask the host to share the reveal link instead.`
-          );
+          setSessionEnded(true);
           setLoading(false);
           return;
         }
@@ -150,7 +168,7 @@ export default function JoinPage() {
           return;
         }
 
-        let parsed: { participantId?: string; displayName?: string } | null =
+        let parsed: { participantId?: string; accessToken?: string; displayName?: string } | null =
           null;
         try {
           parsed = JSON.parse(raw);
@@ -164,11 +182,12 @@ export default function JoinPage() {
           return;
         }
 
-        const { data: p, error: pErr } = await supabase
-          .from("participants")
-          .select("id,session_id,display_name,user_id,created_at")
-          .eq("id", participantId)
-          .single();
+        const { data: p, error: pErr } = await resumeSessionParticipant(
+          user ? authClient : supabase,
+          sessionId,
+          participantId,
+          parsed?.accessToken || participantId,
+        );
 
         if (!pErr && p && (p as ParticipantRow).session_id === sessionId) {
           const row = p as ParticipantRow;
@@ -193,8 +212,7 @@ export default function JoinPage() {
 
         setLoading(false);
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Unknown error.");
-        setLoading(false);
+        failLoad("join.load_failed", "Something went wrong opening this tasting.", e);
       }
     };
 
@@ -212,7 +230,8 @@ export default function JoinPage() {
     router.push(scoreUrl);
   };
 
-  const submit = async () => {
+  const submit = async (e?: FormEvent) => {
+    e?.preventDefault();
     try {
       if (!sessionId) return;
 
@@ -220,118 +239,29 @@ export default function JoinPage() {
       const clean = enforcedProfile || customProfileName.trim() || selectedProfile.trim();
 
       if (!clean) {
-        setError("Please choose or enter a profile.");
+        setFormError("Pick a saved name or type a new one.");
         return;
       }
 
       if (enforcedProfile && clean !== enforcedProfile) {
-        setError("Profile name is locked for this account.");
+        setFormError("Your profile name is locked for this account.");
         return;
       }
 
       setSubmitting(true);
-      setError("");
+      setFormError("");
 
       // Use an authenticated client so RLS policies can verify auth.uid() = user_id
       const dbClient = authUserId ? createSupabaseBrowserClient() : supabase;
 
-      let row: ParticipantRow | null = null;
-
-      if (authUserId && !isOwner) {
-        const { data: ownedParticipant, error: ownedParticipantError } =
-          await dbClient
-            .from("participants")
-            .select("id,session_id,display_name,user_id,created_at")
-            .eq("session_id", sessionId)
-            .eq("user_id", authUserId)
-            .maybeSingle();
-
-        if (ownedParticipantError) {
-          setError(ownedParticipantError.message);
-          setSubmitting(false);
-          return;
-        }
-
-        row = (ownedParticipant as ParticipantRow | null) || null;
-
-        if (!row) {
-          const { data: legacyParticipant, error: legacyParticipantError } =
-            await dbClient
-              .from("participants")
-              .select("id,session_id,display_name,user_id,created_at")
-              .eq("session_id", sessionId)
-              .eq("display_name", clean)
-              .is("user_id", null)
-              .maybeSingle();
-
-          if (legacyParticipantError) {
-            setError(legacyParticipantError.message);
-            setSubmitting(false);
-            return;
-          }
-
-          if (legacyParticipant) {
-            const { data: claimedParticipant, error: claimError } = await dbClient
-              .from("participants")
-              .update({ user_id: authUserId })
-              .eq("id", legacyParticipant.id as string)
-              .select("id,session_id,display_name,user_id,created_at")
-              .single();
-
-            if (claimError) {
-              setError(claimError.message);
-              setSubmitting(false);
-              return;
-            }
-
-            row = claimedParticipant as ParticipantRow;
-          }
-        }
-      } else {
-        const { data: existing, error: existingErr } = await dbClient
-          .from("participants")
-          .select("id,session_id,display_name,user_id,created_at")
-          .eq("session_id", sessionId)
-          .eq("display_name", clean)
-          .maybeSingle();
-
-        if (existingErr) {
-          setError(existingErr.message);
-          setSubmitting(false);
-          return;
-        }
-
-        row = (existing as ParticipantRow | null) || null;
+      const { data: joined, error: joinError } = await joinSession(dbClient, sessionId, clean);
+      if (joinError || !joined) {
+        // join_session raises human-readable messages (name taken, closed, ...).
+        setFormError(joinError?.message || "Couldn't join this tasting. Try again.");
+        setSubmitting(false);
+        return;
       }
-
-      if (!row) {
-        const insertPayload: {
-          session_id: string;
-          display_name: string;
-          user_id?: string;
-        } = {
-          session_id: sessionId,
-          display_name: clean,
-        };
-
-        if (authUserId && !isOwner) {
-          insertPayload.user_id = authUserId;
-        }
-
-        const { data: inserted, error: insErr } = await dbClient
-          .from("participants")
-          .insert(insertPayload)
-          .select("id,session_id,display_name,user_id,created_at")
-          .single();
-
-        if (insErr) {
-          setError(insErr.message);
-          setSubmitting(false);
-          return;
-        }
-
-        row = inserted as ParticipantRow;
-      }
+      const row = joined as ParticipantRow;
 
       saveProfileOption(clean);
 
@@ -340,6 +270,7 @@ export default function JoinPage() {
           storageKey(sessionId),
           JSON.stringify({
             participantId: row.id,
+            accessToken: row.access_token,
             displayName: row.display_name,
           })
         );
@@ -351,155 +282,190 @@ export default function JoinPage() {
       setSubmitting(false);
 
       router.push(scoreUrl);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Unknown error.");
+    } catch (err: unknown) {
+      const ref = newCorrelationId();
+      logEvent("error", "join.submit_failed", { ref, sessionId, message: errorMessage(err) });
+      setFormError(userFacingError("Couldn't join this tasting. Check your connection and try again.", ref));
       setSubmitting(false);
     }
   };
 
   if (loading) {
-    return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="text-zinc-500">Loading...</div>
-      </main>
-    );
+    return <LoadingScreen label="Opening tasting" />;
   }
 
-  if (error) {
+  if (loadError) {
     return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm">
-          <div className="text-2xl font-extrabold tracking-tight">
-            Join Error
-          </div>
-          <p className="text-zinc-600 mt-2">{error}</p>
+      <PageShell center>
+        <div className="w-full text-center">
+          <Wordmark size="lg" />
+          <Notice tone="danger" className="mt-8 text-left">
+            {loadError}
+          </Notice>
+          <Link href="/" className={buttonStyles({ variant: "secondary", size: "lg", block: true, className: "mt-4" })}>
+            Go home
+          </Link>
         </div>
-      </main>
+      </PageShell>
     );
   }
 
   if (!session) return null;
 
+  const header = (
+    <div className="text-center">
+      <Wordmark />
+      <Eyebrow className="mt-8">{session.is_blind ? "Blind tasting" : "Open tasting"}</Eyebrow>
+      <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">{session.title}</h1>
+    </div>
+  );
+
+  if (sessionEnded) {
+    return (
+      <PageShell center>
+        <div className="w-full">
+          {header}
+          <Card className="mt-8 text-center">
+            <Trophy className="mx-auto h-8 w-8 text-accent" />
+            <div className="mt-3 font-semibold">This tasting has wrapped up</div>
+            <p className="mt-1 text-sm text-fg-muted">
+              Scoring is closed, but you can still see how the bottles stacked up.
+            </p>
+            <Link
+              href={`/reveal/${session.id}`}
+              className={buttonStyles({ variant: "primary", size: "lg", block: true, className: "mt-5" })}
+            >
+              See the results
+            </Link>
+          </Card>
+        </div>
+      </PageShell>
+    );
+  }
+
+  if (existingParticipant) {
+    return (
+      <PageShell center>
+        <div className="w-full">
+          {header}
+          <Card className="mt-8 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-accent-soft font-display text-2xl font-semibold text-accent">
+              {existingParticipant.display_name.charAt(0).toUpperCase()}
+            </div>
+            <div className="mt-3 text-lg font-semibold">Welcome back, {existingParticipant.display_name}</div>
+            <p className="mt-1 text-sm text-fg-muted">This phone is already in the tasting.</p>
+            <Button variant="primary" size="lg" block className="mt-5" onClick={continueAsExisting}>
+              Continue scoring <ChevronRight className="h-4 w-4" />
+            </Button>
+          </Card>
+          <p className="mt-4 px-2 text-center text-xs text-fg-faint">
+            Joining as someone else on this phone? Use a private browser tab.
+          </p>
+        </div>
+      </PageShell>
+    );
+  }
+
+  const chosenName = lockedProfileName || customProfileName.trim() || selectedProfile;
+
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-6">
-      <div className="max-w-md mx-auto">
-        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-sm text-zinc-500">Cask Unknown</div>
-              <h1 className="text-2xl font-extrabold tracking-tight mt-1">
-                {session.title}
-              </h1>
-              <div className="text-sm text-zinc-500 mt-1">
-                {session.is_blind ? "Blind tasting" : "Open tasting"}
-              </div>
-            </div>
-          </div>
+    <PageShell center>
+      <div className="w-full">
+        {header}
 
-          {existingParticipant ? (
-            <div className="mt-6">
-              <div className="text-zinc-700">
-                Welcome back,{" "}
-                <span className="font-semibold text-zinc-900">
-                  {existingParticipant.display_name}
-                </span>
-                .
-              </div>
-              <div className="text-sm text-zinc-500 mt-1">
-                This phone is already joined to this session.
-              </div>
-
-              <button
-                onClick={continueAsExisting}
-                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 text-black flex items-center justify-center gap-2"
-              >
-                Continue to Scoring <ChevronRight size={16} />
-              </button>
-
-              <div className="mt-4 text-xs text-zinc-500">
-                Want to join as a different person on this same phone? Clear
-                site data or open in an incognito tab.
-              </div>
-            </div>
-          ) : (
-            <div className="mt-6">
-              {lockedProfileName ? (
-                <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4">
-                  <div className="text-xs text-zinc-400">Your profile</div>
-                  <div className="mt-1 font-semibold text-white">
-                    {lockedProfileName}
-                  </div>
-                  <div className="mt-2 text-xs text-zinc-400">
-                    Profile names are locked after setup. Ask the admin to
-                    change it.
-                  </div>
+        <form onSubmit={submit} className="mt-8">
+          <Card>
+            {lockedProfileName ? (
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-lg font-semibold text-accent">
+                  {lockedProfileName.charAt(0).toUpperCase()}
                 </div>
+                <div className="min-w-0">
+                  <div className="text-xs text-fg-faint">Joining as</div>
+                  <div className="truncate font-semibold">{lockedProfileName}</div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="font-semibold">Who&apos;s tasting?</div>
+                <p className="mt-0.5 text-sm text-fg-muted">
+                  Your name shows up on the reveal next to your scores.
+                </p>
+
+                {profileOptions.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label="Saved names">
+                    {profileOptions.map((profile) => {
+                      const active = !customProfileName.trim() && selectedProfile === profile;
+                      return (
+                        <button
+                          key={profile}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => {
+                            setSelectedProfile(profile);
+                            setCustomProfileName("");
+                            setFormError("");
+                          }}
+                          className={cx(
+                            "flex h-10 items-center gap-1.5 rounded-full border px-4 text-sm font-semibold",
+                            active
+                              ? "border-accent bg-accent text-on-accent"
+                              : "border-line bg-raised text-fg hover:border-line-strong",
+                          )}
+                        >
+                          <UserRound className="h-3.5 w-3.5" />
+                          {profile}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                <label htmlFor="new-name" className="mt-4 block text-xs font-semibold text-fg-muted">
+                  {profileOptions.length ? "Or a new name" : "Your name"}
+                </label>
+                <input
+                  id="new-name"
+                  value={customProfileName}
+                  onChange={(e) => {
+                    setCustomProfileName(e.target.value);
+                    setFormError("");
+                    if (e.target.value) setSelectedProfile("");
+                  }}
+                  maxLength={80}
+                  autoComplete="nickname"
+                  placeholder="Sam"
+                  className="mt-1.5 h-12 w-full rounded-2xl border border-line bg-sunken px-4 text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
+                />
+              </>
+            )}
+
+            {formError ? (
+              <Notice tone="danger" className="mt-4">
+                {formError}
+              </Notice>
+            ) : null}
+
+            <Button type="submit" variant="primary" size="lg" block className="mt-5" disabled={submitting}>
+              {submitting ? (
+                "Joining…"
               ) : (
                 <>
-                  <label className="block text-sm font-semibold text-zinc-200">
-                    Your profile
-                  </label>
-
-                  <select
-                    value={selectedProfile}
-                    onChange={(e) => {
-                      setSelectedProfile(e.target.value);
-                      if (e.target.value) {
-                        setCustomProfileName("");
-                      }
-                    }}
-                    className="mt-2 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                  >
-                    <option value="">Select a saved profile</option>
-                    {profileOptions.map((profile) => (
-                      <option key={profile} value={profile}>
-                        {profile}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div className="mt-4 flex items-center gap-3">
-                    <div className="flex-1 h-px bg-zinc-200" />
-                    <span className="text-xs font-semibold text-zinc-400">or enter a new name</span>
-                    <div className="flex-1 h-px bg-zinc-200" />
-                  </div>
-
-                  <label className="mt-3 block text-sm font-semibold text-zinc-800">
-                    New profile name
-                  </label>
-
-                  <input
-                    value={customProfileName}
-                    onChange={(e) => {
-                      setCustomProfileName(e.target.value);
-                      if (e.target.value) {
-                        setSelectedProfile("");
-                      }
-                    }}
-                    className="mt-2 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                    placeholder="Select or type a new profile name"
-                  />
+                  <GlassWater className="h-4 w-4" />
+                  {chosenName ? `Join as ${chosenName}` : "Join tasting"}
                 </>
               )}
+            </Button>
+          </Card>
+        </form>
 
-              <button
-                onClick={submit}
-                disabled={submitting}
-                className="mt-4 w-full rounded-2xl px-4 py-3 font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 text-black disabled:opacity-60 flex items-center justify-center gap-2"
-              >
-                {submitting ? "Joining..." : "Join Session"}
-                {!submitting && <ChevronRight size={16} />}
-              </button>
-
-              <div className="mt-4 text-xs text-zinc-500">
-                {lockedProfileName
-                  ? "Your account profile is used automatically for blind sessions."
-                  : "Select a saved profile or type a new one. New profiles are saved automatically on this phone."}
-              </div>
-            </div>
-          )}
-        </div>
+        <p className="mt-4 px-2 text-center text-xs text-fg-faint">
+          {lockedProfileName
+            ? "Your account name is used for every tasting."
+            : "No account needed. Names you use are remembered on this phone."}
+        </p>
       </div>
-    </main>
+    </PageShell>
   );
 }

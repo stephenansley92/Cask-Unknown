@@ -1,23 +1,31 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 import { saveProfileSetupAction } from "./actions";
 
 type ProfileSetupPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     message?: string;
-  };
+    redirectTo?: string;
+  }>;
 };
 
 export default async function ProfileSetupPage({
   searchParams,
 }: ProfileSetupPageProps) {
-  const supabase = createSupabaseServerClient();
+  const resolvedSearchParams = await searchParams;
+  const redirectTo = safeInternalPath(resolvedSearchParams?.redirectTo);
+
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login?redirectTo=%2Fprofile%2Fsetup");
+    const setupPath = redirectTo
+      ? `/profile/setup?redirectTo=${encodeURIComponent(redirectTo)}`
+      : "/profile/setup";
+    redirect(`/login?redirectTo=${encodeURIComponent(setupPath)}`);
   }
 
   const { data: existingProfile } = await supabase
@@ -27,11 +35,13 @@ export default async function ProfileSetupPage({
     .maybeSingle();
 
   if (existingProfile) {
-    redirect("/profile");
+    redirect(redirectTo || "/profile");
   }
 
   const message =
-    typeof searchParams?.message === "string" ? searchParams.message : "";
+    typeof resolvedSearchParams?.message === "string"
+      ? resolvedSearchParams.message
+      : "";
 
   return (
     <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6 flex items-center justify-center">
@@ -51,6 +61,7 @@ export default async function ProfileSetupPage({
         ) : null}
 
         <form action={saveProfileSetupAction} className="mt-6 space-y-4">
+          <input type="hidden" name="redirectTo" value={redirectTo} />
           <div>
             <label
               htmlFor="displayName"

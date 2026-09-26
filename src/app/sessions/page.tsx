@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
+import { listHostedSessions } from "@/lib/session-api";
 
 type SavedSession = {
   id: string;
@@ -16,7 +18,6 @@ type SavedSession = {
 type SessionRow = {
   id: string;
   title: string;
-  host_key: string;
   status: string | null;
   created_at: string | null;
 };
@@ -78,7 +79,7 @@ export default function SessionsPage() {
           error: userError,
         } = await supabase.auth.getUser();
 
-        if (userError) {
+        if (userError && !isAuthSessionMissingError(userError)) {
           setError(userError.message);
           setLoading(false);
           return;
@@ -89,11 +90,7 @@ export default function SessionsPage() {
           return;
         }
 
-        const { data, error: sessionsError } = await supabase
-          .from("sessions")
-          .select("id,title,host_key,status,created_at")
-          .eq("host_user_id", user.id)
-          .order("created_at", { ascending: false });
+        const { data, error: sessionsError } = await listHostedSessions(supabase);
 
         if (sessionsError) {
           setError(sessionsError.message);
@@ -104,7 +101,7 @@ export default function SessionsPage() {
         setAccountSessions(
           ((data || []) as SessionRow[]).map((row) => ({
             id: row.id,
-            key: row.host_key,
+            key: "",
             title: row.title || "Untitled Session",
             createdAt: row.created_at || new Date().toISOString(),
             status: row.status || "setup",

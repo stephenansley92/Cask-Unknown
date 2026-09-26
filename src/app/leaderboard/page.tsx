@@ -1,5 +1,11 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logEvent, newCorrelationId, userFacingError } from "@/lib/log";
+import { buttonStyles } from "@/components/ui/button";
+import { Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { TabBar } from "@/components/ui/tab-bar";
 
 type PublicProfileRow = {
   user_id: string;
@@ -34,7 +40,7 @@ function toNumber(value: number | string | null | undefined) {
 }
 
 export default async function LeaderboardPage() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const [
     { data, error },
     { data: publicRateSummaryData, error: publicRateSummaryError },
@@ -48,21 +54,20 @@ export default async function LeaderboardPage() {
   ]);
 
   if (error) {
+    const ref = newCorrelationId();
+    logEvent("error", "community.load_failed", { ref, code: error.code, message: error.message });
     return (
-      <main className="min-h-screen bg-zinc-900 p-4 text-white sm:p-6">
-        <div className="mx-auto max-w-4xl rounded-3xl border border-zinc-700 bg-zinc-800 p-6 shadow-sm">
-          <div className="text-sm text-zinc-400">Cask Unknown</div>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-            Community
-          </h1>
-          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-4">
-            <div className="font-semibold text-red-700">
-              Could not load community
-            </div>
-            <div className="mt-1 text-sm text-red-600">{error.message}</div>
-          </div>
-        </div>
-      </main>
+      <PageShell width="lg" bottomInset>
+        <TabBar />
+        <Wordmark />
+        <h1 className="mt-6 font-display text-3xl font-semibold tracking-tight">Community</h1>
+        <Notice tone="danger" title="The community board didn't load" className="mt-6">
+          {userFacingError("Try again in a moment.", ref)}
+        </Notice>
+        <Link href="/" className={buttonStyles({ variant: "secondary", className: "mt-4" })}>
+          Back home
+        </Link>
+      </PageShell>
     );
   }
 

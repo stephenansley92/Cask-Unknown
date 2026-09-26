@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { loadPublicRateHistoryRecords } from "@/lib/profile-history/read-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 import DeleteEntryForm from "./delete-entry-form";
 
 type HistoryMode = "blind" | "rate";
@@ -109,9 +110,7 @@ function normalizeOwner(value: string) {
 }
 
 function normalizeReturnTo(value: string, fallback: string) {
-  const trimmed = value.trim();
-  if (!trimmed || !trimmed.startsWith("/")) return fallback;
-  return trimmed;
+  return safeInternalPath(value, fallback);
 }
 
 function formatRatedAt(value?: string) {
@@ -159,7 +158,7 @@ function getWhiskeyInfo(whiskey: RateRecord["whiskey"]) {
 }
 
 async function loadRateRecord(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   ratingId: string
 ) {
   const withScoresJson = await supabase
@@ -254,7 +253,7 @@ async function loadRateRecord(
 }
 
 async function loadTemplateItems(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   templateId: string
 ) {
   const withMaxPoints = await supabase
@@ -297,7 +296,7 @@ async function loadTemplateItems(
 }
 
 async function loadBlindRecord(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   scoreId: string
 ) {
   const { data: scoreData, error: scoreError } = await supabase
@@ -380,7 +379,7 @@ async function loadBlindRecord(
 }
 
 async function canViewPublicProfile(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   ownerUserId: string,
   expectedDisplayName?: string
 ) {
@@ -400,43 +399,47 @@ async function canViewPublicProfile(
 }
 
 type HistoryDetailPageProps = {
-  params: {
+  params: Promise<{
     mode: string;
     id: string;
-  };
-  searchParams?: {
+  }>;
+  searchParams?: Promise<{
     owner?: string | string[];
     returnTo?: string | string[];
     message?: string | string[];
-  };
+  }>;
 };
 
 export default async function HistoryDetailPage({
   params,
   searchParams,
 }: HistoryDetailPageProps) {
-  const mode = normalizeMode(params?.mode || "");
-  const entryId = params?.id || "";
+  const [resolvedParams, resolvedSearchParams] = await Promise.all([
+    params,
+    searchParams,
+  ]);
+  const mode = normalizeMode(resolvedParams?.mode || "");
+  const entryId = resolvedParams?.id || "";
 
   if (!mode || !entryId) {
     notFound();
   }
 
   const requestedOwner = normalizeOwner(
-    getSingleQueryValue(searchParams?.owner)
+    getSingleQueryValue(resolvedSearchParams?.owner)
   );
   const returnTo = normalizeReturnTo(
-    getSingleQueryValue(searchParams?.returnTo),
+    getSingleQueryValue(resolvedSearchParams?.returnTo),
     "/profile"
   );
-  const message = getSingleQueryValue(searchParams?.message);
+  const message = getSingleQueryValue(resolvedSearchParams?.message);
 
   const query = new URLSearchParams();
   if (requestedOwner) query.set("owner", requestedOwner);
   query.set("returnTo", returnTo);
   const redirectTo = `/history/${mode}/${entryId}?${query.toString()}`;
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
+import { safeInternalPath } from "@/lib/redirects";
 
 type RateDetailPageProps = {
-  params: {
+  params: Promise<{
     id: string;
-  };
-  searchParams?: {
+  }>;
+  searchParams?: Promise<{
     returnTo?: string | string[];
     owner?: string | string[];
-  };
+  }>;
 };
 
 function getSingleQueryValue(value: string | string[] | undefined): string {
@@ -16,21 +17,26 @@ function getSingleQueryValue(value: string | string[] | undefined): string {
   return "";
 }
 
-export default function RateDetailPageRedirect({
+export default async function RateDetailPageRedirect({
   params,
   searchParams,
 }: RateDetailPageProps) {
-  const ratingId = params?.id || "";
+  const [resolvedParams, resolvedSearchParams] = await Promise.all([
+    params,
+    searchParams,
+  ]);
+  const ratingId = resolvedParams?.id || "";
   if (!ratingId) {
     redirect("/rate");
   }
 
   const query = new URLSearchParams();
-  const returnTo = getSingleQueryValue(searchParams?.returnTo);
-  const owner = getSingleQueryValue(searchParams?.owner);
+  const returnTo = getSingleQueryValue(resolvedSearchParams?.returnTo);
+  const owner = getSingleQueryValue(resolvedSearchParams?.owner);
 
-  if (returnTo && returnTo.startsWith("/")) {
-    query.set("returnTo", returnTo);
+  const safeReturnTo = safeInternalPath(returnTo);
+  if (safeReturnTo) {
+    query.set("returnTo", safeReturnTo);
   }
 
   if (owner) {

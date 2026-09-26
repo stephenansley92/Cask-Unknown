@@ -23,13 +23,14 @@ function getWhiskeyName(whiskey: RatingRow["whiskey"]) {
 }
 
 type RatePageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     saved?: string;
-  };
+  }>;
 };
 
 export default async function RatePage({ searchParams }: RatePageProps) {
-  const supabase = createSupabaseServerClient();
+  const resolvedSearchParams = await searchParams;
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -89,7 +90,7 @@ export default async function RatePage({ searchParams }: RatePageProps) {
               Recent Ratings
             </div>
 
-            {searchParams?.saved === "1" ? (
+            {resolvedSearchParams?.saved === "1" ? (
               <div className="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700">
                 Rating saved.
               </div>

@@ -11,7 +11,7 @@ import {
 import { RateNewForm } from "./rate-new-form";
 
 async function loadWhiskeysForRate(
-  supabase: ReturnType<typeof createSupabaseServerClient>
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
 ) {
   const selectAttempts = [
     WHISKEY_SELECT_COLUMNS,
@@ -46,7 +46,7 @@ async function loadWhiskeysForRate(
 }
 
 export default async function RateNewPage() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

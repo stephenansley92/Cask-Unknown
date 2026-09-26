@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { ACTIVE_PROFILE_STORAGE_KEY, BASE_PROFILES, getProfileOptions } from "@/lib/profiles";
 import {
   buildWhiskeyIdentityKey,
@@ -11,6 +13,7 @@ import {
   EMPTY_WHISKEY_FORM_VALUES,
   type WhiskeyFormValues,
 } from "@/lib/whiskey/schema";
+import { getCsvValue, normalizeHeader, parseCsv } from "@/lib/csv";
 import {
   CATEGORY,
   buildCanonicalProfileHistoryView,
@@ -105,90 +108,6 @@ function toNumberOrNull(value: unknown) {
   return parsed;
 }
 
-function parseCsv(text: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  let index = 0;
-
-  const input = text.replace(/^\uFEFF/, "");
-
-  while (index < input.length) {
-    const char = input[index];
-    const next = input[index + 1];
-
-    if (inQuotes) {
-      if (char === '"' && next === '"') {
-        field += '"';
-        index += 2;
-        continue;
-      }
-
-      if (char === '"') {
-        inQuotes = false;
-        index += 1;
-        continue;
-      }
-
-      field += char;
-      index += 1;
-      continue;
-    }
-
-    if (char === '"') {
-      inQuotes = true;
-      index += 1;
-      continue;
-    }
-
-    if (char === ",") {
-      row.push(field);
-      field = "";
-      index += 1;
-      continue;
-    }
-
-    if (char === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-      index += 1;
-      continue;
-    }
-
-    if (char === "\r") {
-      index += 1;
-      continue;
-    }
-
-    field += char;
-    index += 1;
-  }
-
-  row.push(field);
-  if (row.some((value) => value.trim().length > 0)) {
-    rows.push(row);
-  }
-
-  return rows;
-}
-
-function normalizeHeader(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function getCsvValue(
-  row: string[],
-  headerIndexByKey: Map<string, number>,
-  key: string
-) {
-  const index = headerIndexByKey.get(key);
-  if (index === undefined || index < 0 || index >= row.length) return "";
-  return row[index]?.trim() || "";
-}
-
 function shouldFillText(existing: string | null, incoming: string | null) {
   return (!existing || !existing.trim()) && Boolean(incoming && incoming.trim());
 }
@@ -240,6 +159,7 @@ function getUnknownErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function ProfilePage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
@@ -256,7 +176,7 @@ export default function ProfilePage() {
   const [profileResolved, setProfileResolved] = useState(false);
   const [authUserId, setAuthUserId] = useState("");
   const [publicProfileDisplayName, setPublicProfileDisplayName] = useState("");
-  const [publicProfileIsPublic, setPublicProfileIsPublic] = useState(true);
+  const [publicProfileIsPublic, setPublicProfileIsPublic] = useState(false);
   const [publicProfileError, setPublicProfileError] = useState("");
   const [savingPublicProfile, setSavingPublicProfile] = useState(false);
   const [collectionFile, setCollectionFile] = useState<File | null>(null);
@@ -284,7 +204,7 @@ export default function ProfilePage() {
         error: userError,
       } = await authClient.auth.getUser();
 
-      if (userError) {
+      if (userError && !isAuthSessionMissingError(userError)) {
         setError(userError.message);
         setLoading(false);
         return;
@@ -314,7 +234,7 @@ export default function ProfilePage() {
       }
 
       if (!profileRow) {
-        window.location.href = "/profile/setup";
+        router.replace("/profile/setup");
         return;
       }
 
@@ -337,19 +257,21 @@ export default function ProfilePage() {
       if (publicProfileLoadError) {
         setPublicProfileError(publicProfileLoadError.message);
         setPublicProfileDisplayName(resolvedDisplayName);
-        setPublicProfileIsPublic(true);
+        setPublicProfileIsPublic(false);
         setProfileResolved(true);
         return;
       }
 
       if (!existingPublicProfile) {
+        // New profiles start private; the user opts into Community
+        // visibility explicitly via the toggle below.
         const { error: publicProfileUpsertError } = await authClient
           .from("public_profiles")
           .upsert(
             {
               user_id: user.id,
               display_name: resolvedDisplayName,
-              is_public: true,
+              is_public: false,
             },
             {
               onConflict: "user_id",
@@ -359,13 +281,13 @@ export default function ProfilePage() {
         if (publicProfileUpsertError) {
           setPublicProfileError(publicProfileUpsertError.message);
           setPublicProfileDisplayName(resolvedDisplayName);
-          setPublicProfileIsPublic(true);
+          setPublicProfileIsPublic(false);
           setProfileResolved(true);
           return;
         }
 
         setPublicProfileDisplayName(resolvedDisplayName);
-        setPublicProfileIsPublic(true);
+        setPublicProfileIsPublic(false);
       } else {
         const publicProfile = existingPublicProfile as PublicProfileRow;
         setPublicProfileDisplayName(
@@ -380,7 +302,7 @@ export default function ProfilePage() {
     };
 
     loadUser();
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const loadRatings = async () => {
@@ -394,7 +316,7 @@ export default function ProfilePage() {
           error: userError,
         } = await authClient.auth.getUser();
 
-        if (userError) throw userError;
+        if (userError && !isAuthSessionMissingError(userError)) throw userError;
         if (!user) {
           setRateHistory([]);
           setRateLoading(false);
@@ -574,7 +496,7 @@ export default function ProfilePage() {
         error: userError,
       } = await authClient.auth.getUser();
 
-      if (userError) throw userError;
+      if (userError && !isAuthSessionMissingError(userError)) throw userError;
       if (!user) {
         throw new Error("Sign in to import your collection.");
       }
@@ -1410,7 +1332,10 @@ export default function ProfilePage() {
               Community visibility
             </div>
             <div className="mt-2 text-sm text-zinc-500">
-              For beta, public profiles default to on. Your public profile only exposes your display name and aggregated community stats.
+              Your profile is private by default. Turning this on lists you on
+              the Community leaderboard and makes your tasting history —
+              including your scores and written notes — visible to anyone with
+              the link.
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
@@ -1540,6 +1465,8 @@ export default function ProfilePage() {
                   setSigningOut(true);
                   const authClient = createSupabaseBrowserClient();
                   await authClient.auth.signOut();
+                  // Full page load on purpose: drops the signed-out session's client state and cached pages.
+                  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
                   window.location.href = "/login?message=Signed%20out.";
                 }}
                 disabled={signingOut}

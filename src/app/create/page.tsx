@@ -1,16 +1,10 @@
 ﻿"use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-
-function makeKey(len = 24) {
-  const bytes = new Uint8Array(len);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes)
-    .map((b) => (b % 36).toString(36))
-    .join("");
-}
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
+import { createHostedSession } from "@/lib/session-api";
 
 function defaultTitle() {
   const d = new Date();
@@ -28,8 +22,6 @@ export default function CreatePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState<string>("");
-
-  const hostKey = useMemo(() => makeKey(28), []);
 
   const createSession = async () => {
     try {
@@ -50,7 +42,7 @@ export default function CreatePage() {
         error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError) {
+      if (userError && !isAuthSessionMissingError(userError)) {
         setError(userError.message);
         setBusy(false);
         return;
@@ -62,22 +54,14 @@ export default function CreatePage() {
         return;
       }
 
-      const { data, error: insErr } = await supabase
-        .from("sessions")
-        .insert([
-          {
-            title: cleanTitle,
-            host_key: hostKey,
-            host_user_id: user.id,
-            is_blind: isBlind,
-            status: "setup",
-          },
-        ])
-        .select("id,host_key")
-        .single();
+      const { data, error: insErr } = await createHostedSession(
+        supabase,
+        cleanTitle,
+        isBlind,
+      );
 
-      if (insErr) {
-        setError(insErr.message);
+      if (insErr || !data) {
+        setError(insErr?.message || "Could not create the session.");
         setBusy(false);
         return;
       }

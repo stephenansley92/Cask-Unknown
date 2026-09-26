@@ -5,11 +5,18 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { errorMessage } from "@/lib/log";
+import { deleteHostParticipant, getHostSession } from "@/lib/session-api";
+import { ChevronLeft, Users } from "lucide-react";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { LoadingScreen, Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
 
 type SessionRow = {
   id: string;
   title: string;
-  host_key: string;
   is_blind: boolean;
   status: string;
   created_at?: string;
@@ -69,48 +76,23 @@ export default function HostTastersPage() {
         setLoading(false);
         return;
       }
-      if (!hostKey) {
-        setError("Missing host key (this link is the host-only link).");
+      const { data: snapshot, error: sessErr } = await getHostSession(
+        supabase,
+        sessionId,
+        hostKey,
+      );
+
+      if (sessErr || !snapshot) {
+        setError(sessErr?.message || "Host session not found.");
         setLoading(false);
         return;
       }
 
-      const { data: sess, error: sessErr } = await supabase
-        .from("sessions")
-        .select("id,title,host_key,is_blind,status,created_at")
-        .eq("id", sessionId)
-        .single();
-
-      if (sessErr) {
-        setError(sessErr.message);
-        setLoading(false);
-        return;
-      }
-
-      if (!sess || sess.host_key !== hostKey) {
-        setError("Host key mismatch. This link is not authorized.");
-        setLoading(false);
-        return;
-      }
-
-      setSession(sess as SessionRow);
-
-      const { data: participantRows, error: partErr } = await supabase
-        .from("participants")
-        .select("id,session_id,display_name,created_at")
-        .eq("session_id", sessionId)
-        .order("created_at", { ascending: true });
-
-      if (partErr) {
-        setError(partErr.message);
-        setLoading(false);
-        return;
-      }
-
-      setParticipants((participantRows || []) as ParticipantRow[]);
+      setSession(snapshot.session as SessionRow);
+      setParticipants(snapshot.participants as ParticipantRow[]);
       setLoading(false);
-    } catch (e: any) {
-      setError(e?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(errorMessage(e));
       setLoading(false);
     }
   };
@@ -137,25 +119,17 @@ export default function HostTastersPage() {
       setBusyId(participant.id);
       setError("");
 
-      const { error: scoreErr } = await supabase
-        .from("scores")
-        .delete()
-        .eq("session_id", sessionId)
-        .eq("participant_id", participant.id);
-
-      if (scoreErr) {
-        setError(scoreErr.message);
-        setBusyId(null);
-        return;
-      }
-
-      const { error: partErr } = await supabase.from("participants").delete().eq("id", participant.id);
+      const { error: partErr } = await deleteHostParticipant(
+        supabase,
+        sessionId,
+        participant.id,
+        hostKey,
+      );
 
       if (partErr) {
-        // Scores are gone but the participant row wasn't removed — reload so counts stay accurate.
         await loadAll();
         setError(
-          `Scores were removed but ${participant.display_name} could not be fully removed (${partErr.message}). Please try again.`
+          `Could not remove ${participant.display_name} (${partErr.message}). Please try again.`
         );
         setBusyId(null);
         return;
@@ -164,125 +138,103 @@ export default function HostTastersPage() {
       setParticipants((prev) => prev.filter((p) => p.id !== participant.id));
       setBusyId(null);
       showSaved("Taster removed");
-    } catch (e: any) {
-      setError(e?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(errorMessage(e));
       setBusyId(null);
     }
   };
 
   if (loading) {
-    return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="text-zinc-300">Loading tasters...</div>
-      </main>
-    );
+    return <LoadingScreen label="Loading tasters" />;
   }
 
   if (error) {
     return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="max-w-lg w-full bg-zinc-800 border border-zinc-700 rounded-2xl p-6">
-          <h1 className="text-xl font-bold text-amber-400 mb-2">Tasters Error</h1>
-          <p className="text-zinc-300">{error}</p>
-          <div className="mt-4">
-            <Link
-              href={hostUrl || "/"}
-              className="inline-flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl"
-            >
-              Back to Host Dashboard
-            </Link>
-          </div>
+      <PageShell center>
+        <div className="w-full text-center">
+          <Wordmark size="lg" />
+          <Notice tone="danger" title="Tasters didn't load" className="mt-8 text-left">
+            {error}
+          </Notice>
+          <Link href={hostUrl || "/"} className={buttonStyles({ variant: "secondary", size: "lg", block: true, className: "mt-4" })}>
+            Back to the dashboard
+          </Link>
         </div>
-      </main>
+      </PageShell>
     );
   }
 
   if (!session) return null;
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-6">
+    <PageShell width="md">
       <ConfirmModal
         open={!!pendingRemove}
-        title="Remove taster?"
-        message={`Remove ${pendingRemove?.display_name}?\n\nThis deletes their saved scores for this session too.`}
-        confirmLabel="Remove"
-        cancelLabel="Cancel"
+        title={`Remove ${pendingRemove?.display_name ?? "this taster"}?`}
+        message="Their saved scores for this tasting are deleted too. This can't be undone."
+        confirmLabel="Remove taster"
+        cancelLabel="Keep them"
         dangerous
         onConfirm={confirmRemoveTaster}
         onCancel={() => setPendingRemove(null)}
       />
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-6 md:p-8 shadow-lg">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold text-amber-400">{session.title}</h1>
-              <p className="text-zinc-400 mt-1">
-                Tasters • <span className="text-zinc-200 font-semibold">{participants.length}</span>
-              </p>
-              <p className="text-zinc-500 text-sm mt-1">
-                Remove a taster here if someone joined by mistake. Their saved scores for this session are removed too.
-              </p>
-            </div>
 
-            <div className="flex flex-col items-end gap-2">
-              {saveHint ? (
-                <div className="text-xs text-zinc-300 bg-zinc-900 border border-zinc-700 rounded-full px-3 py-1">
-                  {saveHint}
-                </div>
-              ) : (
-                <div className="text-xs text-zinc-600"> </div>
-              )}
+      <header className="flex items-center justify-between">
+        <Link href={hostUrl} className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Dashboard
+        </Link>
+        <span className="text-xs text-fg-muted" aria-live="polite">
+          {saveHint}
+        </span>
+      </header>
 
-              <Link
-                href={hostUrl}
-                className="inline-flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl"
-              >
-                Back
-              </Link>
-            </div>
-          </div>
-
-          <div className="mt-6 bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden">
-            {participants.length === 0 ? (
-              <div className="px-4 py-5 text-sm text-zinc-500">No tasters have joined this session yet.</div>
-            ) : (
-              participants.map((participant) => {
-                const removing = busyId === participant.id;
-
-                return (
-                  <div
-                    key={participant.id}
-                    className="flex items-center justify-between gap-4 px-4 py-4 border-b border-zinc-800 last:border-b-0"
-                  >
-                    <div>
-                      <div className="font-semibold text-zinc-100">{participant.display_name}</div>
-                      <div className="text-xs text-zinc-500">Joined this session</div>
-                    </div>
-
-                    <button
-                      onClick={() => removeTaster(participant)}
-                      disabled={!!busyId}
-                      className={[
-                        "text-sm px-4 py-2 rounded-xl border",
-                        busyId
-                          ? "text-zinc-500 bg-zinc-800 border-zinc-800 cursor-not-allowed"
-                          : "text-red-300 hover:text-red-200 bg-zinc-800 hover:bg-zinc-700 border-zinc-700",
-                      ].join(" ")}
-                    >
-                      {removing ? "Removing..." : "Remove"}
-                    </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          <div className="mt-4 text-xs text-zinc-500">
-            Removing someone does not clear their phone automatically, but they will not count in stats and their old
-            scores will be gone.
-          </div>
-        </div>
+      <div className="mt-6">
+        <Eyebrow>{session.title}</Eyebrow>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">
+          Tasters <span className="text-fg-faint">{participants.length}</span>
+        </h1>
+        <p className="mt-1 text-sm text-fg-muted">Remove anyone who joined by mistake.</p>
       </div>
-    </main>
+
+      <Card className="mt-6" padded={false}>
+        {participants.length === 0 ? (
+          <div className="px-5 py-8 text-center">
+            <Users className="mx-auto h-7 w-7 text-fg-faint" />
+            <div className="mt-2 font-semibold">Nobody has joined yet</div>
+            <p className="mt-1 text-sm text-fg-muted">Share the QR code from the dashboard to invite tasters.</p>
+          </div>
+        ) : (
+          <ul>
+            {participants.map((participant) => {
+              const removing = busyId === participant.id;
+
+              return (
+                <li
+                  key={participant.id}
+                  className="flex items-center gap-3 border-b border-line px-5 py-3.5 last:border-b-0"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display font-semibold text-accent">
+                    {participant.display_name.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-semibold">{participant.display_name}</span>
+                  <Button
+                    variant="ghostDanger"
+                    size="sm"
+                    onClick={() => removeTaster(participant)}
+                    disabled={!!busyId}
+                  >
+                    {removing ? "Removing…" : "Remove"}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+
+      <p className="mt-4 text-xs text-fg-faint">
+        A removed taster&apos;s phone isn&apos;t signed out, but they drop out of the stats and their scores are gone.
+      </p>
+    </PageShell>
   );
 }

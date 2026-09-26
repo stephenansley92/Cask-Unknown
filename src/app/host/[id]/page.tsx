@@ -1,18 +1,41 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { QRCodeCanvas } from "qrcode.react";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
-import { Lock, Users, Scan, Copy, Wine, Unlock, Trophy, Star } from "lucide-react";
+import { errorMessage } from "@/lib/log";
+import { getHostSession, setHostSessionStatus, unlockHostScores } from "@/lib/session-api";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Eye,
+  Lock,
+  Star,
+  Trophy,
+  Tv,
+  Unlock,
+  Users,
+  Wine,
+} from "lucide-react";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { LoadingScreen, Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { StatusPill } from "@/components/ui/status-pill";
+import { Toast, useToast } from "@/components/ui/toast";
+import { cx } from "@/components/ui/cx";
 
 type SessionRow = {
   id: string;
   title: string;
-  host_key: string;
   is_blind: boolean;
   status: string; // setup | scoring | reveal_ready | revealed | closed
   created_at?: string;
@@ -44,7 +67,7 @@ export default function HostPage() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
-  const [copyHint, setCopyHint] = useState("");
+  const toast = useToast();
 
   // gating stats
   const [poursCount, setPoursCount] = useState(0);
@@ -53,6 +76,7 @@ export default function HostPage() {
   const [coreLockedCount, setCoreLockedCount] = useState(0);
   const [finalLockedCount, setFinalLockedCount] = useState(0);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [statsReady, setStatsReady] = useState(false);
 
   const joinUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -70,34 +94,21 @@ export default function HostPage() {
     try {
       setStatsLoading(true);
 
-      const { data: poursData, error: poursErr } = await supabase
-        .from("pours")
-        .select("id,session_id")
-        .eq("session_id", sessionId);
+      const authClient = createSupabaseBrowserClient();
+      const { data: snapshot, error: snapshotError } = await getHostSession(
+        authClient,
+        sessionId,
+        hostKey,
+      );
+      if (snapshotError || !snapshot) throw snapshotError || new Error("Host session not found.");
 
-      if (poursErr) throw poursErr;
-
-      const { data: partsData, error: partsErr } = await supabase
-        .from("participants")
-        .select("id,session_id")
-        .eq("session_id", sessionId);
-
-      if (partsErr) throw partsErr;
-
-      const pours = (poursData || []) as PourRow[];
-      const participants = (partsData || []) as ParticipantRow[];
+      const pours = snapshot.pours as PourRow[];
+      const participants = snapshot.participants as ParticipantRow[];
 
       const expected = pours.length * participants.length;
 
       // Pull existing score locks
-      const { data: locksData, error: locksErr } = await supabase
-        .from("scores")
-        .select("pour_id,participant_id,core_locked,final_locked")
-        .eq("session_id", sessionId);
-
-      if (locksErr) throw locksErr;
-
-      const locks = (locksData || []) as ScoreLockRow[];
+      const locks = snapshot.scores as ScoreLockRow[];
 
       // Build a quick lookup: `${participantId}__${pourId}` -> lock flags
       const lockMap: Record<string, { core: boolean; final: boolean }> = {};
@@ -124,9 +135,10 @@ export default function HostPage() {
       setExpectedCount(expected);
       setCoreLockedCount(coreCount);
       setFinalLockedCount(finalCount);
-    } catch (e: any) {
+      setStatsReady(true);
+    } catch (e: unknown) {
       // don't hard-fail the host page if stats fail
-      console.warn("Stats refresh failed:", e?.message || e);
+      console.warn("Stats refresh failed:", errorMessage(e));
     } finally {
       setStatsLoading(false);
     }
@@ -143,31 +155,17 @@ export default function HostPage() {
           setLoading(false);
           return;
         }
-        if (!hostKey) {
-          setError("Missing host key (this link is host-only).");
+        const authClient = createSupabaseBrowserClient();
+        const { data: snapshot, error } = await getHostSession(authClient, sessionId, hostKey);
+
+        if (error || !snapshot) {
+          setError(error?.message || "Host session not found.");
           setLoading(false);
           return;
         }
 
-        const { data, error } = await supabase
-          .from("sessions")
-          .select("id,title,host_key,is_blind,status,created_at")
-          .eq("id", sessionId)
-          .single();
-
-        if (error) {
-          setError(error.message);
-          setLoading(false);
-          return;
-        }
-
-        if (!data || (data as any).host_key !== hostKey) {
-          setError("Host key mismatch. This link is not authorized.");
-          setLoading(false);
-          return;
-        }
-
-        setSession(data as SessionRow);
+        const data = snapshot.session as SessionRow;
+        setSession(data);
         setLoading(false);
 
         // Persist to localStorage so My Sessions page can list it
@@ -183,8 +181,8 @@ export default function HostPage() {
 
         // initial stats
         await refreshStats();
-      } catch (e: any) {
-        setError(e?.message || "Unknown error.");
+      } catch (e: unknown) {
+        setError(errorMessage(e));
         setLoading(false);
       }
     };
@@ -197,40 +195,47 @@ export default function HostPage() {
   useEffect(() => {
     if (!sessionId) return;
 
+    // Coalesce bursts of change events (every taster autosaving fires one
+    // per keystroke batch) into a single stats refresh per window instead of
+    // three queries per event.
+    let refreshTimer: number | null = null;
+    const scheduleStatsRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void refreshStats();
+      }, 400);
+    };
+
     const channel = supabase
       .channel(`host-live-${sessionId}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sessionId}` },
-        (payload: any) => {
-          const newStatus = (payload?.new?.status || "") as string;
+        (payload) => {
+          const newStatus = String(payload.new?.status || "");
           setSession((prev) => (prev ? { ...prev, status: newStatus } : prev));
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "scores", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          await refreshStats();
-        }
+        scheduleStatsRefresh
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "participants", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          await refreshStats();
-        }
+        scheduleStatsRefresh
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pours", filter: `session_id=eq.${sessionId}` },
-        async () => {
-          await refreshStats();
-        }
+        scheduleStatsRefresh
       )
       .subscribe();
 
     return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -239,11 +244,9 @@ export default function HostPage() {
   const copy = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopyHint(`${label} copied!`);
-      setTimeout(() => setCopyHint(""), 2000);
+      toast.show(`${label} copied`);
     } catch {
-      setCopyHint("Could not copy — copy manually.");
-      setTimeout(() => setCopyHint(""), 3000);
+      toast.show("Couldn't copy. Long-press the link to copy it.");
     }
   };
 
@@ -265,12 +268,12 @@ export default function HostPage() {
       // the cookie-based auth client (the host signed in to create the session).
       // The plain anon client would be silently rejected (0 rows updated).
       const dbClient = createSupabaseBrowserClient();
-      const { data: updated, error } = await dbClient
-        .from("sessions")
-        .update({ status: newStatus })
-        .eq("id", sessionId)
-        .select("id")
-        .maybeSingle();
+      const { data: updated, error } = await setHostSessionStatus(
+        dbClient,
+        sessionId,
+        newStatus,
+        hostKey,
+      );
 
       if (error) {
         setError(error.message);
@@ -289,15 +292,20 @@ export default function HostPage() {
       // Don't optimistically update — the realtime subscription will reflect the change.
       setBusy(false);
       after?.();
-    } catch (e: any) {
-      setError((e as any)?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(errorMessage(e));
       setBusy(false);
     }
   };
 
   const setStatus = (newStatus: string, confirmText: string, after?: () => void) => {
     setPendingAction({
-      title: newStatus === "revealed" ? "BIG REVEAL" : newStatus === "reveal_ready" ? "SOFT REVEAL" : "Change Status",
+      title:
+        newStatus === "revealed"
+          ? "Start the big reveal?"
+          : newStatus === "reveal_ready"
+            ? "Start the soft reveal?"
+            : "Change status?",
       message: confirmText,
       onConfirm: () => {
         setPendingAction(null);
@@ -312,15 +320,8 @@ export default function HostPage() {
     try {
       setBusy(true);
 
-      const { error } = await supabase
-        .from("scores")
-        .update({
-          core_locked: false,
-          core_locked_at: null,
-          final_locked: false,
-          final_locked_at: null,
-        })
-        .eq("session_id", sessionId);
+      const dbClient = createSupabaseBrowserClient();
+      const { error } = await unlockHostScores(dbClient, sessionId, hostKey);
 
       if (error) {
         setError(error.message);
@@ -330,8 +331,8 @@ export default function HostPage() {
 
       await refreshStats();
       setBusy(false);
-    } catch (e: any) {
-      setError((e as any)?.message || "Unknown error.");
+    } catch (e: unknown) {
+      setError(errorMessage(e));
       setBusy(false);
     }
   };
@@ -339,14 +340,14 @@ export default function HostPage() {
   const unlockAllScores = () => {
     const statusNow = (session?.status || "").toLowerCase();
     if (statusNow === "revealed") {
-      setError("Scores stay locked after BIG REVEAL.");
+      setError("Scores stay locked after the big reveal.");
       return;
     }
 
     setPendingAction({
-      title: "Unlock all scores?",
+      title: "Unlock every score?",
       message:
-        "This clears CORE and FINAL locks for every saved score so tasters can finish or fix missed categories before BIG REVEAL.",
+        "This clears the core and final locks on every scorecard so tasters can fix missed categories before the big reveal.",
       onConfirm: () => {
         setPendingAction(null);
         doUnlockAllScores();
@@ -355,22 +356,23 @@ export default function HostPage() {
   };
 
   if (loading) {
-    return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="text-zinc-300">Loading host dashboard…</div>
-      </main>
-    );
+    return <LoadingScreen label="Loading host dashboard" />;
   }
 
   if (error && !session) {
     return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="max-w-lg w-full bg-zinc-800 border border-zinc-700 rounded-2xl p-6">
-          <h1 className="text-xl font-bold text-amber-400 mb-2">Host Error</h1>
-          <p className="text-zinc-300">{error}</p>
-          <p className="text-zinc-500 mt-4 text-sm">Tip: Use the host link created right after session creation.</p>
+      <PageShell center>
+        <div className="w-full text-center">
+          <Wordmark size="lg" />
+          <Notice tone="danger" title="This host dashboard didn't open" className="mt-8 text-left">
+            {error} Open it from your tastings while signed in as the host, or use the host link you got when
+            you created the session.
+          </Notice>
+          <Link href="/sessions" className={buttonStyles({ variant: "secondary", size: "lg", block: true, className: "mt-4" })}>
+            Your tastings
+          </Link>
         </div>
-      </main>
+      </PageShell>
     );
   }
 
@@ -386,243 +388,336 @@ export default function HostPage() {
   const canSoftReveal = coreAllLocked && !isRevealReady && !isRevealed;
   const canBigReveal = finalAllLocked && !isRevealed;
 
+  const needsSetup = poursCount === 0 || participantsCount === 0;
+  const setupHint =
+    poursCount === 0 && participantsCount === 0
+      ? "Add pours and invite tasters first."
+      : poursCount === 0
+        ? "Add pours first."
+        : "Waiting for tasters to join.";
+
+  const softState: StepState = isRevealReady || isRevealed ? "done" : canSoftReveal ? "ready" : "blocked";
+  const bigState: StepState = isRevealed ? "done" : canBigReveal ? "ready" : "blocked";
+
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-6">
+    <PageShell width="md">
       <ConnectionBanner />
       <ConfirmModal
         open={!!pendingAction}
         title={pendingAction?.title ?? ""}
         message={pendingAction?.message ?? ""}
-        confirmLabel="Yes, proceed"
-        cancelLabel="Cancel"
+        confirmLabel="Start it"
+        cancelLabel="Not yet"
         onConfirm={pendingAction?.onConfirm ?? (() => setPendingAction(null))}
         onCancel={() => setPendingAction(null)}
       />
-      {copyHint ? (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-zinc-800 text-zinc-100 text-sm font-semibold px-4 py-2 rounded-full shadow-lg border border-zinc-700">
-          {copyHint}
+      <Toast message={toast.message} />
+
+      <header className="flex items-center justify-between">
+        <Link href="/" className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Home
+        </Link>
+        <Wordmark />
+      </header>
+
+      <div className="mt-6">
+        <div className="flex items-center gap-2">
+          <Eyebrow>Host dashboard</Eyebrow>
+          <StatusPill status={session.status} />
         </div>
-      ) : null}
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-6 md:p-8 shadow-lg">
-          {error ? (
-            <div className="mb-4 rounded-2xl border border-red-800 bg-red-900/30 px-4 py-3 text-sm text-red-300 font-semibold flex items-center justify-between gap-3">
-              <span>{error}</span>
-              <button onClick={() => setError("")} className="text-red-400 hover:text-red-200 font-bold text-lg leading-none">×</button>
-            </div>
-          ) : null}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-extrabold text-amber-400">{session.title}</h1>
-              <p className="text-zinc-400 mt-1">
-                Host Dashboard • Status: <span className="text-zinc-200 font-semibold">{session.status}</span>
-              </p>
-              <p className="text-zinc-500 text-sm mt-1">Blind mode: {session.is_blind ? "ON" : "OFF"}</p>
-
-              <div className="mt-3 space-y-2">
-                {statsLoading ? (
-                  <div className="text-xs text-zinc-500 animate-pulse">Checking locks…</div>
-                ) : (
-                  <>
-                    <div>
-                      <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
-                        <span className="flex items-center gap-1"><Lock className="w-3 h-3" /> Core locked</span>
-                        <span className="font-semibold text-zinc-200 tabular-nums">{coreLockedCount}/{expectedCount || 0}</span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-zinc-700">
-                        <div
-                          className="h-1.5 rounded-full bg-emerald-500 transition-all duration-500"
-                          style={{ width: expectedCount > 0 ? `${(coreLockedCount / expectedCount) * 100}%` : "0%" }}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
-                        <span className="flex items-center gap-1"><Trophy className="w-3 h-3" /> Final locked</span>
-                        <span className="font-semibold text-zinc-200 tabular-nums">{finalLockedCount}/{expectedCount || 0}</span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-zinc-700">
-                        <div
-                          className="h-1.5 rounded-full bg-amber-500 transition-all duration-500"
-                          style={{ width: expectedCount > 0 ? `${(finalLockedCount / expectedCount) * 100}%` : "0%" }}
-                        />
-                      </div>
-                    </div>
-                    <div className="text-xs text-zinc-500 flex items-center gap-3 pt-0.5">
-                      <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {participantsCount} tasters</span>
-                      <span className="flex items-center gap-1"><Wine className="w-3 h-3" /> {poursCount} pours</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-3">
-              <QRCodeCanvas value={joinUrl} size={120} />
-            </div>
-          </div>
-
-          {/* Join link */}
-          <div className="mt-6 bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
-            <div className="flex items-center gap-1.5 text-sm text-zinc-400 mb-2">
-              <Scan className="w-4 h-4" /> Join link for friends
-            </div>
-            <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
-              <input
-                readOnly
-                value={joinUrl}
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200"
-              />
-              <button
-                onClick={() => copy(joinUrl, "Join link")}
-                className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-black font-semibold px-5 py-3 rounded-xl"
-              >
-                <Copy className="w-4 h-4" /> Copy
-              </button>
-            </div>
-            <div className="text-xs text-zinc-500 mt-2">Have them scan the QR code or open the link.</div>
-            <button
-              onClick={() => router.push(`/join/${sessionId}`)}
-              className="mt-3 w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-amber-600 text-amber-400 font-semibold px-4 py-3 rounded-xl"
-            >
-              <Star className="w-4 h-4" /> Score as Taster (join this session yourself)
-            </button>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Bottle info */}
-            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-5">
-              <div className="text-zinc-300 font-semibold">Step 1 — Reveal Prep</div>
-              <div className="text-zinc-500 text-sm mt-1">
-                Enter bottle name/proof (when you know them). Names stay hidden until BIG REVEAL.
-              </div>
-              <button
-                onClick={goPoursSetup}
-                className="mt-4 w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold px-4 py-3 rounded-xl"
-              >
-                <Wine className="w-4 h-4" /> Manage Pours (Bottle Info)
-              </button>
-              <button
-                onClick={goTastersSetup}
-                className="mt-3 w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white font-semibold px-4 py-3 rounded-xl"
-              >
-                <Users className="w-4 h-4" /> Manage Tasters
-              </button>
-              <div className="text-xs text-zinc-500 mt-2">
-                You can edit bottle info during Soft Reveal too — it stays hidden until BIG REVEAL.
-              </div>
-            </div>
-
-            {/* Reveal controls */}
-            <div className="bg-zinc-900 border border-amber-500/30 rounded-2xl p-5">
-              <div className="text-zinc-300 font-semibold">Step 2 — Reveal Controls</div>
-              <div className="text-zinc-500 text-sm mt-1">
-                Soft Reveal opens Packaging/Value scoring. BIG REVEAL shows names + winners.
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-2">
-                <button
-                  disabled={busy || !canSoftReveal}
-                  onClick={() =>
-                    setStatus(
-                      "reveal_ready",
-                      "SOFT REVEAL now?\n\nThis unlocks Packaging + Value scoring on phones.\nBottle names stay hidden until BIG REVEAL."
-                    )
-                  }
-                  className={[
-                    "w-full font-semibold px-4 py-3 rounded-xl border",
-                    isRevealReady || isRevealed
-                      ? "bg-emerald-600/20 border-emerald-700 text-emerald-200 cursor-not-allowed"
-                      : canSoftReveal
-                      ? "bg-zinc-800 hover:bg-zinc-700 active:scale-95 border-zinc-700 text-white"
-                      : "bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed",
-                  ].join(" ")}
-                >
-                  {isRevealed
-                    ? "Soft Reveal (Done)"
-                    : isRevealReady
-                    ? "Soft Reveal Active"
-                    : busy
-                    ? "Working…"
-                    : "SOFT REVEAL (Unlock Packaging + Value)"}
-                </button>
-
-                {!coreAllLocked ? (
-                  <div className="text-xs text-zinc-500">
-                    Soft Reveal is locked until everyone locks core scores ({coreLockedCount}/{expectedCount || 0}).
-                  </div>
-                ) : null}
-
-                <button
-                  disabled={busy || (!canBigReveal && !isRevealed)}
-                  onClick={() => {
-                    if (isRevealed) {
-                      router.push(`/reveal/${sessionId}`);
-                      return;
-                    }
-
-                    setStatus(
-                      "revealed",
-                      "BIG REVEAL now?\n\nThis will show bottle names and final winners on the reveal screen.",
-                      () => router.push(`/reveal/${sessionId}`)
-                    );
-                  }}
-                  className={[
-                    "w-full font-extrabold px-4 py-4 rounded-xl flex items-center justify-center gap-2 text-base",
-                    isRevealed
-                      ? "bg-amber-500 hover:bg-amber-600 active:scale-95 text-black"
-                      : canBigReveal
-                      ? "bg-amber-500 hover:bg-amber-600 active:scale-95 text-black animate-reveal-pulse"
-                      : "bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed",
-                  ].join(" ")}
-                >
-                  <Trophy className="w-5 h-5" />
-                  {isRevealed ? "BIG REVEAL COMPLETE" : busy ? "Revealing…" : "BIG REVEAL"}
-                </button>
-
-                {!finalAllLocked ? (
-                  <div className="text-xs text-zinc-500">
-                    BIG REVEAL is locked until everyone locks FINAL scores ({finalLockedCount}/{expectedCount || 0}).
-                    <br />
-                    Tell them to tap <span className="text-zinc-200 font-semibold">“Lock Final Scores”</span>.
-                  </div>
-                ) : null}
-
-                <button
-                  onClick={unlockAllScores}
-                  disabled={busy || isRevealed}
-                  className={[
-                    "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border font-semibold",
-                    busy || isRevealed
-                      ? "bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed"
-                      : "bg-zinc-800 hover:bg-zinc-700 active:scale-95 border-zinc-700 text-white",
-                  ].join(" ")}
-                >
-                  <Unlock className="w-4 h-4" /> {busy ? "Working..." : "Unlock All Scores"}
-                </button>
-
-                <div className="text-xs text-zinc-500">
-                  Clears CORE and FINAL locks across the session so people can fix missed categories before BIG
-                  REVEAL.
-                </div>
-
-                <button
-                  onClick={() => copy(revealUrl, "Reveal link")}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 border border-zinc-700 text-white font-semibold"
-                >
-                  <Copy className="w-4 h-4" /> Copy Reveal Link
-                </button>
-              </div>
-
-              <div className="text-xs text-zinc-500 mt-2">
-                Tip: open the reveal link on a TV/iPad — it will wait until BIG REVEAL.
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 text-center text-zinc-500 text-sm">Cask Unknown • Host link is private (key-protected)</div>
-        </div>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight sm:text-4xl">{session.title}</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          {session.is_blind
+            ? "Blind tasting. Bottle names stay hidden until the big reveal."
+            : "Open tasting. Bottle names are visible to everyone."}
+        </p>
       </div>
-    </main>
+
+      {error ? (
+        <Notice tone="danger" onDismiss={() => setError("")} className="mt-4">
+          {error}
+        </Notice>
+      ) : null}
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <Card>
+          <Eyebrow>Invite tasters</Eyebrow>
+          <div className="mt-4 flex items-center gap-4">
+            {/* QR codes need a light quiet zone to scan reliably */}
+            <div className="shrink-0 rounded-2xl bg-white p-2.5">
+              <QRCodeCanvas value={joinUrl} size={112} />
+            </div>
+            <p className="text-sm text-fg-muted">
+              Everyone scans this with their phone camera. No account needed.
+            </p>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <input
+              readOnly
+              value={joinUrl}
+              aria-label="Join link"
+              onFocus={(e) => e.currentTarget.select()}
+              className="h-11 min-w-0 flex-1 rounded-2xl border border-line bg-sunken px-3 text-sm text-fg-muted focus:border-accent focus:outline-none"
+            />
+            <Button variant="secondary" onClick={() => copy(joinUrl, "Join link")}>
+              <Copy className="h-4 w-4" /> Copy
+            </Button>
+          </div>
+          <Link
+            href={`/join/${sessionId}`}
+            className={buttonStyles({ variant: "ghost", block: true, className: "mt-2" })}
+          >
+            <Star className="h-4 w-4" /> Score as a taster yourself
+          </Link>
+        </Card>
+
+        <Card>
+          <Eyebrow>Progress</Eyebrow>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-sunken px-4 py-3">
+              <div className="flex items-center gap-1.5 text-xs text-fg-faint">
+                <Users className="h-3.5 w-3.5" /> Tasters
+              </div>
+              <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{participantsCount}</div>
+            </div>
+            <div className="rounded-2xl bg-sunken px-4 py-3">
+              <div className="flex items-center gap-1.5 text-xs text-fg-faint">
+                <Wine className="h-3.5 w-3.5" /> Pours
+              </div>
+              <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{poursCount}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3" aria-busy={statsLoading && !statsReady}>
+            {statsReady ? (
+              <>
+                <ProgressRow
+                  icon={<Lock className="h-3.5 w-3.5" />}
+                  label="Core scores locked"
+                  done={coreLockedCount}
+                  total={expectedCount}
+                  tone="success"
+                />
+                <ProgressRow
+                  icon={<Trophy className="h-3.5 w-3.5" />}
+                  label="Final scores locked"
+                  done={finalLockedCount}
+                  total={expectedCount}
+                  tone="accent"
+                />
+              </>
+            ) : (
+              <div className="h-16 animate-pulse rounded-2xl bg-sunken" />
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <Card className="mt-4" padded={false}>
+        <div className="px-5 pt-5">
+          <Eyebrow>Set up</Eyebrow>
+        </div>
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={goPoursSetup}
+            className="flex w-full items-center gap-3 border-b border-line px-5 py-4 text-left hover:bg-raised"
+          >
+            <Wine className="h-5 w-5 shrink-0 text-accent" />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">Pours and bottles</span>
+              <span className="block text-xs text-fg-muted">
+                {poursCount ? `${poursCount} pours` : "No pours yet"} · bottle names stay hidden until the reveal
+              </span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-fg-faint" />
+          </button>
+          <button
+            type="button"
+            onClick={goTastersSetup}
+            className="flex w-full items-center gap-3 rounded-b-3xl px-5 py-4 text-left hover:bg-raised"
+          >
+            <Users className="h-5 w-5 shrink-0 text-accent" />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">Tasters</span>
+              <span className="block text-xs text-fg-muted">
+                {participantsCount ? `${participantsCount} joined` : "Nobody has joined yet"}
+              </span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-fg-faint" />
+          </button>
+        </div>
+      </Card>
+
+      <Card className="mt-4">
+        <Eyebrow>Run the reveal</Eyebrow>
+
+        <ol className="mt-4 space-y-4">
+          <StepRow
+            index={1}
+            title="Soft reveal"
+            body="Opens packaging and value scoring on everyone's phone. Bottle names stay hidden."
+            state={softState}
+            hint={
+              softState === "blocked"
+                ? needsSetup
+                  ? setupHint
+                  : `Waiting for core scores: ${coreLockedCount} of ${expectedCount} locked.`
+                : softState === "done"
+                  ? "Soft reveal is live."
+                  : undefined
+            }
+          >
+            {softState !== "done" ? (
+              <Button
+                variant={softState === "ready" ? "primary" : "secondary"}
+                disabled={busy || !canSoftReveal}
+                onClick={() =>
+                  setStatus(
+                    "reveal_ready",
+                    "Tasters can score packaging and value on their phones. Bottle names stay hidden until the big reveal."
+                  )
+                }
+              >
+                <Eye className="h-4 w-4" /> {busy ? "Working…" : "Start soft reveal"}
+              </Button>
+            ) : null}
+          </StepRow>
+
+          <StepRow
+            index={2}
+            title="Big reveal"
+            body="Unmasks the bottles and crowns a winner on the reveal screen."
+            state={bigState}
+            hint={
+              bigState === "blocked"
+                ? needsSetup
+                  ? setupHint
+                  : `Waiting for final scores: ${finalLockedCount} of ${expectedCount} locked. Tasters tap “Lock final scores”.`
+                : undefined
+            }
+          >
+            {isRevealed ? (
+              <Link href={`/reveal/${sessionId}`} className={buttonStyles({ variant: "primary" })}>
+                <Trophy className="h-4 w-4" /> Open the reveal
+              </Link>
+            ) : (
+              <Button
+                variant={bigState === "ready" ? "primary" : "secondary"}
+                disabled={busy || !canBigReveal}
+                className={cx(bigState === "ready" && !busy && "animate-reveal-pulse")}
+                onClick={() =>
+                  setStatus(
+                    "revealed",
+                    "Bottle names and winners appear on the reveal screen, and scores can't change after this.",
+                    () => router.push(`/reveal/${sessionId}`)
+                  )
+                }
+              >
+                <Trophy className="h-4 w-4" /> {busy ? "Revealing…" : "Start big reveal"}
+              </Button>
+            )}
+          </StepRow>
+        </ol>
+
+        <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
+          <Button variant="secondary" size="sm" onClick={() => copy(revealUrl, "Reveal link")}>
+            <Tv className="h-4 w-4" /> Copy link for the TV
+          </Button>
+          <Button variant="ghost" size="sm" onClick={unlockAllScores} disabled={busy || isRevealed}>
+            <Unlock className="h-4 w-4" /> Unlock every score
+          </Button>
+        </div>
+        <p className="mt-2 text-xs text-fg-faint">
+          Open the reveal link on a TV or tablet. It waits quietly until you start the big reveal.
+        </p>
+      </Card>
+
+      <p className="mt-6 text-center text-xs text-fg-faint">This dashboard link is private to the host.</p>
+    </PageShell>
+  );
+}
+
+type StepState = "done" | "ready" | "blocked";
+
+function StepRow({
+  index,
+  title,
+  body,
+  state,
+  hint,
+  children,
+}: {
+  index: number;
+  title: string;
+  body: string;
+  state: StepState;
+  hint?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <li className="flex gap-4">
+      <span
+        className={cx(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border font-display text-sm font-semibold",
+          state === "done"
+            ? "border-success/40 bg-success-soft text-success"
+            : state === "ready"
+              ? "border-accent bg-accent text-on-accent"
+              : "border-line-strong text-fg-faint",
+        )}
+      >
+        {state === "done" ? <Check className="h-4 w-4" /> : index}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold">{title}</div>
+        <p className="text-sm text-fg-muted">{body}</p>
+        {hint ? (
+          <p className={cx("mt-1 text-xs", state === "done" ? "text-success" : "text-fg-faint")}>{hint}</p>
+        ) : null}
+        {children ? <div className="mt-3">{children}</div> : null}
+      </div>
+    </li>
+  );
+}
+
+function ProgressRow({
+  icon,
+  label,
+  done,
+  total,
+  tone,
+}: {
+  icon: ReactNode;
+  label: string;
+  done: number;
+  total: number;
+  tone: "success" | "accent";
+}) {
+  const pct = total > 0 ? (done / total) * 100 : 0;
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between text-xs">
+        <span className="flex items-center gap-1.5 text-fg-muted">
+          {icon} {label}
+        </span>
+        <span className="font-semibold tabular-nums text-fg">
+          {done}/{total}
+        </span>
+      </div>
+      <div
+        className="h-2 w-full overflow-hidden rounded-full bg-sunken"
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={done}
+      >
+        <div
+          className={cx("h-full rounded-full transition-all duration-500", tone === "success" ? "bg-success" : "bg-accent")}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
   );
 }
