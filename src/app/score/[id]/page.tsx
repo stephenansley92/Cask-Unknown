@@ -1146,22 +1146,20 @@ export default function ScorePage() {
         <div className="mx-auto flex max-w-md items-center gap-2 px-4 py-3">
           <Button
             variant="secondary"
-            size="lg"
+            size="iconLg"
             onClick={goPrevPour}
             disabled={!canGoPrev}
             aria-label="Previous pour"
-            className="w-13 px-0"
           >
             <ChevronLeft className="h-5 w-5" />
           </Button>
           <div className="min-w-0 flex-1">{primaryAction}</div>
           <Button
             variant="secondary"
-            size="lg"
+            size="iconLg"
             onClick={goNextPour}
             disabled={!canGoNext}
             aria-label="Next pour"
-            className="w-13 px-0"
           >
             <ChevronRight className="h-5 w-5" />
           </Button>
