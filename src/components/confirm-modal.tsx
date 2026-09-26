@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
+import { Button } from "@/components/ui/button";
 
 type ConfirmModalProps = {
   open: boolean;
@@ -23,6 +24,9 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  const titleId = useId();
+  const messageId = useId();
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -36,33 +40,36 @@ export function ConfirmModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
       onClick={onCancel}
     >
       <div
-        className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-xl animate-fade-slide-up"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
+        className="w-full max-w-sm rounded-3xl border border-line bg-surface p-6 shadow-2xl shadow-black/50 animate-fade-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-lg font-extrabold text-zinc-900">{title}</div>
-        <div className="mt-2 text-sm text-zinc-600 whitespace-pre-line">{message}</div>
-        <div className="mt-5 flex flex-col gap-2">
-          <button
+        <div id={titleId} className="font-display text-xl font-semibold text-fg">
+          {title}
+        </div>
+        <div id={messageId} className="mt-2 whitespace-pre-line text-sm leading-relaxed text-fg-muted">
+          {message}
+        </div>
+        <div className="mt-6 flex flex-col gap-2">
+          <Button
+            autoFocus
+            variant={dangerous ? "danger" : "primary"}
+            size="lg"
+            block
             onClick={onConfirm}
-            className={[
-              "w-full px-4 py-3 rounded-2xl font-semibold text-sm",
-              dangerous
-                ? "bg-red-600 hover:bg-red-700 text-white"
-                : "bg-zinc-900 hover:bg-zinc-800 text-white",
-            ].join(" ")}
           >
             {confirmLabel}
-          </button>
-          <button
-            onClick={onCancel}
-            className="w-full px-4 py-3 rounded-2xl font-semibold text-sm bg-zinc-100 hover:bg-zinc-200 text-zinc-900"
-          >
+          </Button>
+          <Button variant="ghost" size="lg" block onClick={onCancel}>
             {cancelLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

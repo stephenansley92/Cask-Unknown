@@ -1,4 +1,4 @@
-const SHELL_CACHE = "cask-shell-v1";
+const SHELL_CACHE = "cask-shell-v2";
 const PRECACHE_URLS = [
   "/",
   "/manifest.webmanifest",

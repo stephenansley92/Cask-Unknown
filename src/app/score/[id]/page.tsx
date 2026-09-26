@@ -1,11 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type TouchEvent,
+} from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
-import { Lock, LockOpen, CheckCircle2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, GlassWater, Info, Lock, Trophy } from "lucide-react";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { LoadingScreen, Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { cx } from "@/components/ui/cx";
 import { useWakeLock } from "@/lib/use-wake-lock";
 import {
   CATEGORY_SPEC,
@@ -725,15 +740,15 @@ export default function ScorePage() {
       kind: "core",
       message:
         missingCore.length > 0
-          ? `These core categories are still 0 for Pour ${activePour?.code ?? ""}: ${missingCore.join(", ")}.\n\nLock CORE scores anyway?`
-          : `Lock CORE scores for Pour ${activePour?.code ?? ""}?\n\nPackaging and Value can still be scored later after the host unlocks that stage.`,
+          ? `${missingCore.join(", ")} ${missingCore.length === 1 ? "is" : "are"} still at 0 for Pour ${activePour?.code ?? ""}.\n\nLock your core scores anyway?`
+          : `You won't be able to change them for Pour ${activePour?.code ?? ""}. Packaging and value can still be scored after the host starts the soft reveal.`,
     });
   };
 
   const lockFinalNow = () => {
     if (!activePourId) return;
     if (!revealScoringEnabled) {
-      showHint("Wait for host unlock");
+      showHint("Waiting for the host");
       return;
     }
     if (activeFinalLocked) return;
@@ -746,8 +761,8 @@ export default function ScorePage() {
       kind: "final",
       message:
         missingFinal.length > 0
-          ? `These categories are still 0 for Pour ${activePour?.code ?? ""}: ${missingFinal.join(", ")}.\n\nLock FINAL scores anyway?`
-          : `Lock FINAL scores for Pour ${activePour?.code ?? ""}?\n\nThis locks Packaging/Value for this pour before BIG REVEAL.`,
+          ? `${missingFinal.join(", ")} ${missingFinal.length === 1 ? "is" : "are"} still at 0 for Pour ${activePour?.code ?? ""}.\n\nLock your final scores anyway?`
+          : `This locks every score for Pour ${activePour?.code ?? ""} ahead of the big reveal.`,
     });
   };
 
@@ -769,21 +784,22 @@ export default function ScorePage() {
   };
 
   if (loading) {
-    return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="text-zinc-400">Loading scoring…</div>
-      </main>
-    );
+    return <LoadingScreen label="Loading scoring" />;
   }
 
   if (error) {
     return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-zinc-800 border border-zinc-700 rounded-3xl p-6 shadow-sm">
-          <div className="text-2xl font-extrabold tracking-tight">Scoring Error</div>
-          <p className="text-zinc-400 mt-2">{error}</p>
+      <PageShell center>
+        <div className="w-full text-center">
+          <Wordmark size="lg" />
+          <Notice tone="danger" title="Scoring didn't load" className="mt-8 text-left">
+            {error}
+          </Notice>
+          <Button variant="primary" size="lg" block className="mt-4" onClick={() => window.location.reload()}>
+            Try again
+          </Button>
         </div>
-      </main>
+      </PageShell>
     );
   }
 
@@ -791,370 +807,364 @@ export default function ScorePage() {
 
   if (pours.length === 0) {
     return (
-      <main className="min-h-screen bg-zinc-900 text-white flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-zinc-800 border border-zinc-700 rounded-3xl p-6 shadow-sm text-center">
-          <div className="text-2xl font-extrabold tracking-tight">No pours yet</div>
-          <p className="text-zinc-400 mt-2 text-sm">
-            The host hasn&apos;t added any pours to this session. Check back once they set everything up.
+      <PageShell center>
+        <Card className="w-full text-center">
+          <GlassWater className="mx-auto h-8 w-8 text-accent" />
+          <h1 className="mt-3 font-display text-2xl font-semibold">No pours yet</h1>
+          <p className="mt-2 text-sm text-fg-muted">
+            The host hasn&apos;t set out any glasses for {session.title} yet. Refresh once they&apos;re
+            ready.
           </p>
+          <Button variant="secondary" className="mt-5" onClick={() => window.location.reload()}>
+            Refresh
+          </Button>
+        </Card>
+      </PageShell>
+    );
+  }
+
+  const coreCategories = CATEGORY_SPEC.filter((c) => c.group === "core");
+  const revealCategories = CATEGORY_SPEC.filter((c) => c.group === "reveal");
+  const coreScoredCount = coreCategories.filter((c) => activeDraft[c.key] > 0).length;
+
+  // Where this pour is in the core → soft reveal → final flow.
+  const stage: "core" | "waiting" | "final" | "done" = activeFinalLocked
+    ? "done"
+    : !activeCoreLocked
+      ? "core"
+      : revealScoringEnabled
+        ? "final"
+        : "waiting";
+
+  const stageSteps = [
+    { label: "Core scores", done: activeCoreLocked, current: stage === "core" },
+    { label: "Soft reveal", done: revealScoringEnabled, current: stage === "waiting" },
+    { label: "Final lock", done: activeFinalLocked, current: stage === "final" },
+  ];
+
+  const stageMessage = {
+    core: "Score the eight core categories, then lock them in.",
+    waiting: "Core locked. Packaging and value open when the host starts the soft reveal.",
+    final: "Soft reveal is live. Score packaging and value, then lock your final scores.",
+    done: isRevealed
+      ? "The bottles have been revealed."
+      : "Final scores locked for this pour. Nothing changes before the big reveal.",
+  }[stage];
+
+  const renderCategory = (c: (typeof CATEGORY_SPEC)[number]) => {
+    const val = activeDraft[c.key];
+    const isCore = c.group === "core";
+
+    // Core: editable only before core lock.
+    // Packaging/Value: editable only after host unlocks and before final lock.
+    const disabled =
+      activeFinalLocked ||
+      isScrollLocked ||
+      (isCore ? activeCoreLocked : !revealScoringEnabled);
+
+    const isExpanded = expandedCategory === c.key;
+    const pct = ((val - c.min) / (c.max - c.min)) * 100;
+    const detailsId = `category-${c.key}-details`;
+
+    return (
+      <div key={c.key} className="border-b border-line px-4 py-4 last:border-b-0">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setExpandedCategory(isExpanded ? null : c.key)}
+            aria-expanded={isExpanded}
+            aria-controls={detailsId}
+            className="-m-1 flex items-center gap-1.5 rounded-lg p-1 text-left font-semibold text-fg"
+          >
+            {c.label}
+            <Info className={cx("h-3.5 w-3.5", isExpanded ? "text-accent" : "text-fg-faint")} />
+          </button>
+          <div className="tabular-nums">
+            <span className={cx("text-lg font-bold", val > 0 ? "text-accent" : "text-fg-faint")}>{val}</span>
+            <span className="text-sm text-fg-faint"> / {c.max}</span>
+          </div>
         </div>
-      </main>
+
+        {isExpanded ? (
+          <p id={detailsId} className="mt-1 text-xs leading-5 text-fg-muted animate-fade-in">
+            {c.description} <span className="text-fg-faint">{c.examples}</span>
+          </p>
+        ) : null}
+
+        <div className="relative mt-3 py-1">
+          <input
+            type="range"
+            min={c.min}
+            max={c.max}
+            step={1}
+            value={val}
+            aria-label={`${c.label} score`}
+            aria-valuetext={`${val} of ${c.max}`}
+            onChange={(e) => {
+              if (activeSliderTouch.current) return;
+              setSliderValue(c.key, Number(e.target.value));
+            }}
+            onTouchStart={(e) => handleSliderTouchStart(c.key, c.min, c.max, e)}
+            onTouchMove={handleSliderTouchMove}
+            onTouchEnd={handleSliderTouchEnd}
+            onTouchCancel={() => {
+              activeSliderTouch.current = null;
+              setDraggingKey(null);
+            }}
+            disabled={disabled}
+            className={cx("cask-slider block w-full", disabled && "opacity-50")}
+            style={{ touchAction: "pan-y", "--fill": `${pct}%` } as CSSProperties}
+          />
+          {draggingKey === c.key && (
+            <div
+              className="pointer-events-none absolute -top-9 -translate-x-1/2 rounded-xl bg-accent px-3 py-1 text-sm font-extrabold tabular-nums text-on-accent shadow-lg"
+              style={{ left: `calc(${pct}% + ${12 - pct * 0.24}px)` }}
+            >
+              {val}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  let primaryAction: ReactNode;
+  if (stage === "core") {
+    primaryAction = (
+      <Button variant="primary" size="lg" block onClick={lockCoreNow}>
+        <Lock className="h-4 w-4" /> Lock core scores
+      </Button>
+    );
+  } else if (stage === "final") {
+    primaryAction = (
+      <Button variant="primary" size="lg" block onClick={lockFinalNow}>
+        <Lock className="h-4 w-4" /> Lock final scores
+      </Button>
+    );
+  } else if (isRevealed) {
+    primaryAction = (
+      <Link href={`/reveal/${session.id}`} className={buttonStyles({ variant: "primary", size: "lg", block: true })}>
+        <Trophy className="h-4 w-4" /> See the results
+      </Link>
+    );
+  } else if (canGoNext) {
+    primaryAction = (
+      <Button variant="secondary" size="lg" block onClick={goNextPour}>
+        Next pour <ChevronRight className="h-4 w-4" />
+      </Button>
+    );
+  } else {
+    primaryAction = (
+      <div className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-line-strong text-sm font-semibold text-fg-muted">
+        {stage === "done" ? <Check className="h-4 w-4 text-success" /> : null}
+        {stage === "done" ? "Ready for the reveal" : "Waiting for the host"}
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white px-4 pb-4 pt-20 sm:p-6">
+    <main className="min-h-dvh bg-canvas px-4 pb-32 text-fg sm:px-6">
       <ConnectionBanner />
       <ConfirmModal
         open={!!confirmLock}
-        title={confirmLock?.kind === "core" ? "Lock Core Scores?" : "Lock Final Scores?"}
+        title={confirmLock?.kind === "core" ? "Lock core scores?" : "Lock final scores?"}
         message={confirmLock?.message ?? ""}
-        confirmLabel="Lock"
-        cancelLabel="Cancel"
+        confirmLabel="Lock scores"
+        cancelLabel="Keep editing"
         onConfirm={handleLockConfirm}
         onCancel={() => setConfirmLock(null)}
       />
-      <div
-        className="pointer-events-none fixed right-3 top-3 z-[60] min-w-[104px] rounded-2xl border border-amber-500/50 bg-zinc-950/95 px-3 py-2 text-right shadow-lg shadow-black/30 backdrop-blur sm:right-4 sm:top-4"
-        style={{
-          top: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
-          right: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
-        }}
-        aria-live="polite"
+
+      {/* Sticky header: which pour, running total, pour switcher */}
+      <header
+        className="sticky top-0 z-30 -mx-4 border-b border-line bg-canvas/90 px-4 pb-3 backdrop-blur-md sm:-mx-6 sm:px-6"
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
       >
-        <div className="text-[10px] font-semibold uppercase tracking-normal text-amber-400">Score</div>
-        <div key={totalKey} className="text-2xl font-extrabold tabular-nums leading-none animate-score-pop">
-          {total}
-          <span className="text-sm text-zinc-400 font-semibold">/100</span>
-        </div>
-      </div>
-      <div className="max-w-md mx-auto">
-        {saveError ? (
-          <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-semibold flex items-center justify-between gap-3">
-            <span>Save failed: {saveError}</span>
-            <button onClick={() => setSaveError("")} className="text-red-400 hover:text-red-600 font-bold text-lg leading-none">×</button>
-          </div>
-        ) : null}
-        {/* Header */}
-        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-5 shadow-sm">
+        <div className="mx-auto max-w-md">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs text-zinc-400">Cask Unknown</div>
-              <div className="text-xl font-extrabold tracking-tight mt-1">{session.title}</div>
-              <div className="text-sm text-zinc-400 mt-1">
-                Joined as <span className="font-semibold text-white">{participant.display_name}</span>
+            <div className="min-w-0">
+              <div className="truncate text-xs text-fg-faint">
+                {session.title} · {participant.display_name}
               </div>
-              <div className="text-xs text-zinc-400 mt-1">
-                Progress: <span className="font-semibold text-zinc-200">{completedCount}</span> /{" "}
-                {pours.length} pours
-              </div>
-              {/* Core category completion dots for active pour */}
-              {activePourId && (
-                <div className="mt-2 flex items-center gap-1.5">
-                  {CATEGORY_SPEC.filter((c) => c.group === "core").map((c) => {
-                    const val = activeDraft[c.key];
-                    return (
-                      <div
-                        key={c.key}
-                        title={c.label}
-                        className={[
-                          "w-2 h-2 rounded-full transition-colors",
-                          val > 0 ? "bg-amber-400" : "bg-zinc-600",
-                        ].join(" ")}
-                      />
-                    );
-                  })}
-                  <span className="text-xs text-zinc-400 ml-1">
-                    {CATEGORY_SPEC.filter((c) => c.group === "core" && activeDraft[c.key] > 0).length}/8 scored
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-col items-end gap-2">
-              {saveHint ? (
-                <div className="text-xs text-zinc-300 bg-zinc-700 border border-zinc-600 rounded-full px-3 py-1">
-                  {saveHint}
-                </div>
-              ) : (
-                <div className="text-xs text-transparent">Saved ✓</div>
-              )}
-              {hostDashboardUrl && (
-                <button
-                  onClick={() => router.push(hostDashboardUrl)}
-                  className="rounded-2xl border border-amber-500/50 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-400 hover:bg-amber-500/25 active:scale-95"
-                >
-                  Host Dashboard
-                </button>
-              )}
-              <button
-                onClick={() => router.push("/profile")}
-                className="rounded-2xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-300 hover:bg-zinc-700 active:scale-95"
-              >
-                View Profile
-              </button>
-            </div>
-          </div>
-
-          {/* Pour selector */}
-          <div className="mt-4">
-            <div className="text-xs text-zinc-500 mb-2">Select pour</div>
-            <div className="relative">
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {pours.map((p) => {
-                const isActive = p.id === activePourId;
-                const lockedCore = (coreLockedByPour[p.id] ?? false) || isRevealed;
-                const lockedFinal = (finalLockedByPour[p.id] ?? false) || isRevealed;
-
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => switchPour(p.id)}
-                    className={[
-                      "shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 transition-colors",
-                      lockedFinal
-                        ? "border-emerald-500 bg-emerald-500 text-zinc-950"
-                        : lockedCore && isActive
-                        ? "border-emerald-500 bg-zinc-900 text-white"
-                        : lockedCore
-                        ? "border-emerald-500 bg-zinc-700 text-zinc-100"
-                        : isActive
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-700 bg-zinc-700 text-zinc-100",
-                      flashedPour === p.id ? "animate-lock-flash" : "",
-                    ].join(" ")}
-                  >
-                    <div
-                      className={[
-                        "w-8 h-8 rounded-full flex items-center justify-center font-bold",
-                        lockedFinal
-                          ? "bg-zinc-950/20 border border-zinc-950/30 text-zinc-950"
-                          : lockedCore
-                          ? "bg-emerald-500/15 border border-emerald-400 text-white"
-                          : isActive
-                          ? "bg-white/10 border border-white/15"
-                          : "bg-zinc-900 border border-zinc-600",
-                      ].join(" ")}
-                    >
-                      {p.code}
-                    </div>
-                    <div
-                      className={[
-                        "text-xs",
-                        lockedFinal
-                          ? "text-zinc-950"
-                          : isActive
-                          ? "text-white/80"
-                          : lockedCore
-                          ? "text-emerald-600"
-                          : "text-zinc-500",
-                      ].join(" ")}
-                    >
-                      {lockedFinal ? "Final" : lockedCore ? "Core" : "Score"}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            {pours.length > 3 && (
-              <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-10 bg-gradient-to-l from-zinc-800" />
-            )}
-            </div>
-          </div>
-        </div>
-
-        {/* Scoring Card */}
-        <div className="mt-4 bg-zinc-800 border border-zinc-700 rounded-3xl p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs text-zinc-400">Scoring</div>
-              <div className="text-lg font-extrabold tracking-tight">Pour {activePour?.code ?? "—"}</div>
-              <div className="text-xs text-zinc-400 mt-1">
-                Core scores {activeCoreLocked ? "locked" : "editable"} • Packaging/Value{" "}
-                {revealScoringEnabled ? "available" : "available after host unlocks"}
-                {activeFinalLocked ? " • FINAL LOCKED" : ""}
+              <h1 className="font-display text-3xl font-semibold leading-tight">Pour {activePour?.code ?? "—"}</h1>
+              <div className="h-4 text-xs text-fg-muted" aria-live="polite">
+                {saveHint}
               </div>
             </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={goPrevPour}
-                disabled={!canGoPrev}
-                className={[
-                  "rounded-2xl border px-4 py-3 text-sm font-semibold min-w-[64px]",
-                  canGoPrev
-                    ? "border-zinc-200 bg-white text-zinc-950 hover:bg-zinc-50 active:scale-95"
-                    : "border-zinc-700 bg-zinc-900 text-zinc-600 cursor-not-allowed",
-                ].join(" ")}
+            <div className="shrink-0 text-right" aria-live="polite" aria-label={`Total ${total} of 100`}>
+              <div
+                key={totalKey}
+                className="font-display text-4xl font-semibold leading-none tabular-nums text-accent animate-score-pop"
               >
-                Prev
-              </button>
-              <button
-                onClick={goNextPour}
-                disabled={!canGoNext}
-                className={[
-                  "rounded-2xl border px-4 py-3 text-sm font-semibold min-w-[64px]",
-                  canGoNext
-                    ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 active:scale-95"
-                    : "border-zinc-700 bg-zinc-900 text-zinc-600 cursor-not-allowed",
-                ].join(" ")}
-              >
-                Next
-              </button>
+                {total}
+              </div>
+              <div className="mt-1 text-[11px] text-fg-faint">of 100</div>
             </div>
           </div>
 
-          {/* Lock core */}
-          <div className="mt-4">
-            <button
-              onClick={lockCoreNow}
-              disabled={activeCoreLocked || activeFinalLocked}
-              className={[
-                "w-full rounded-2xl px-4 py-3 text-sm font-semibold border flex items-center justify-center gap-2",
-                activeCoreLocked || activeFinalLocked
-                  ? "border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed"
-                  : "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 active:scale-95",
-              ].join(" ")}
-            >
-              {activeCoreLocked ? <Lock size={15} /> : <LockOpen size={15} />}
-              {activeCoreLocked ? "Core Scores Locked" : "Lock Core Scores"}
-            </button>
-            <div className="mt-2 text-xs text-zinc-500">
-              Lock core first. Packaging/Value unlocks when host allows it.
-            </div>
-          </div>
-
-          {/* Lock final (per pour) */}
-          <div className="mt-3">
-            <button
-              onClick={lockFinalNow}
-              disabled={!revealScoringEnabled || activeFinalLocked}
-              className={[
-                "w-full rounded-2xl px-4 py-3 text-sm font-extrabold border flex items-center justify-center gap-2",
-                !revealScoringEnabled || activeFinalLocked
-                  ? "border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed"
-                  : "border-amber-600 bg-amber-500 text-black hover:bg-amber-600 active:scale-95",
-              ].join(" ")}
-            >
-              {activeFinalLocked ? <Lock size={15} /> : <CheckCircle2 size={15} />}
-              {activeFinalLocked ? "Final Scores Locked" : "Lock Final Scores"}
-            </button>
-            <div className="mt-2 text-xs text-zinc-500">
-              After Packaging/Value is open, lock FINAL scores for this pour so nothing changes before BIG REVEAL.
-            </div>
-          </div>
-
-          <div className="mt-5 space-y-5">
-            {CATEGORY_SPEC.map((c) => {
-              const val = activeDraft[c.key];
-
-              const isCore = c.group === "core";
-              const isRevealField = c.group === "reveal";
-
-              // Rules:
-              // - Core: editable only before core lock
-              // - Packaging/Value: editable only after host unlocks and before final lock
-                const disabled =
-                  activeFinalLocked ||
-                  isScrollLocked ||
-                  (isCore ? activeCoreLocked : isRevealField ? !revealScoringEnabled : false);
-
-              const isExpanded = expandedCategory === c.key;
+          <div className="no-scrollbar -mx-4 mt-3 flex gap-2 overflow-x-auto px-4" aria-label="Pours">
+            {pours.map((p) => {
+              const isActive = p.id === activePourId;
+              const lockedCore = (coreLockedByPour[p.id] ?? false) || isRevealed;
+              const lockedFinal = (finalLockedByPour[p.id] ?? false) || isRevealed;
 
               return (
-                <div key={c.key} className="border-t border-zinc-700 pt-4 first:border-t-0 first:pt-0">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedCategory(isExpanded ? null : c.key)}
-                    className="w-full flex items-center justify-between text-left"
-                  >
-                    <div className="font-semibold text-zinc-100">
-                      {c.label}
-                      {isRevealField && !revealScoringEnabled ? (
-                        <span className="ml-2 text-[11px] font-semibold text-zinc-500">(locked)</span>
-                      ) : null}
-                      {activeFinalLocked ? (
-                        <span className="ml-2 text-[11px] font-semibold text-amber-400">(final locked)</span>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-zinc-400">
-                        [{c.min}–{c.max}]{" "}
-                        <span className="font-semibold text-zinc-200 tabular-nums">{val}</span>
-                      </span>
-                      <span className={["text-zinc-400 text-xs transition-transform duration-150", isExpanded ? "rotate-90" : ""].join(" ")}>▸</span>
-                    </div>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="mt-1.5 text-xs leading-5 text-zinc-500 animate-fade-in">
-                      {c.description}
-                      <br />
-                      <span className="text-zinc-400">{c.examples}</span>
-                    </div>
+                <button
+                  key={p.id}
+                  type="button"
+                  aria-pressed={isActive}
+                  aria-label={`Pour ${p.code}${lockedFinal ? ", final locked" : lockedCore ? ", core locked" : ""}`}
+                  onClick={() => switchPour(p.id)}
+                  className={cx(
+                    "flex h-10 min-w-10 shrink-0 items-center justify-center gap-1 rounded-full border px-3 text-sm font-bold",
+                    isActive
+                      ? "border-accent bg-accent text-on-accent"
+                      : lockedFinal
+                        ? "border-success/40 bg-success-soft text-success"
+                        : lockedCore
+                          ? "border-success/40 bg-surface text-success"
+                          : "border-line bg-surface text-fg-muted hover:border-line-strong",
+                    flashedPour === p.id && "animate-lock-flash",
                   )}
-
-                  <div className="mt-2">
-                    <div className="relative">
-                      <input
-                        type="range"
-                        min={c.min}
-                        max={c.max}
-                        step={1}
-                        value={val}
-                        onChange={(e) => {
-                          if (activeSliderTouch.current) return;
-                          setSliderValue(c.key, Number(e.target.value));
-                        }}
-                        onTouchStart={(e) => handleSliderTouchStart(c.key, c.min, c.max, e)}
-                        onTouchMove={handleSliderTouchMove}
-                        onTouchEnd={handleSliderTouchEnd}
-                        onTouchCancel={() => {
-                          activeSliderTouch.current = null;
-                          setDraggingKey(null);
-                        }}
-                        disabled={disabled}
-                        className={["w-full cask-slider", disabled ? "opacity-40" : "opacity-100"].join(" ")}
-                        style={{
-                          touchAction: "pan-y",
-                          background: `linear-gradient(to right, #f59e0b 0%, #f59e0b ${((val - c.min) / (c.max - c.min)) * 100}%, #e4e4e7 ${((val - c.min) / (c.max - c.min)) * 100}%, #e4e4e7 100%)`,
-                        }}
-                      />
-                      {draggingKey === c.key && (
-                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white text-sm font-extrabold px-3 py-1 rounded-xl pointer-events-none tabular-nums">
-                          {val}
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-1 flex justify-between text-xs text-zinc-400 tabular-nums">
-                      <span>{c.min}</span>
-                      <span>{c.max}</span>
-                    </div>
-                  </div>
-                </div>
+                >
+                  {lockedFinal ? <Check className="h-3.5 w-3.5" /> : lockedCore ? <Lock className="h-3 w-3" /> : null}
+                  {p.code}
+                </button>
               );
             })}
-
-            {/* Notes */}
-            <div className="border-t border-zinc-700 pt-4">
-              <div className="flex items-center justify-between">
-                <div className="font-semibold text-zinc-100">Notes</div>
-                <div className="text-xs text-zinc-400">(optional)</div>
-              </div>
-              <textarea
-                ref={notesRef}
-                value={activeDraft.notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g., vanilla + caramel"
-                className="mt-2 w-full min-h-[84px] rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-              />
-              <div className="mt-2 text-xs text-zinc-500">Notes auto-save too.</div>
-            </div>
+          </div>
+          <div className="mt-2 text-[11px] text-fg-faint">
+            {completedCount} of {pours.length} pours started
           </div>
         </div>
+      </header>
 
-        <div className="mt-4 text-center text-xs text-zinc-500">
-          Flow: Lock core (each pour) → host Soft Reveal → score Packaging/Value → Lock FINAL (each pour) → BIG REVEAL.
+      <div className="mx-auto max-w-md pt-4">
+        {saveError ? (
+          <Notice tone="danger" title="Your last change didn't save" onDismiss={() => setSaveError("")} className="mb-4">
+            {saveError}
+          </Notice>
+        ) : null}
+
+        {/* Where this pour is in the flow */}
+        <Card>
+          <ol className="grid grid-cols-3 gap-2">
+            {stageSteps.map((step) => (
+              <li key={step.label}>
+                <div
+                  className={cx(
+                    "h-1.5 rounded-full",
+                    step.done ? "bg-success" : step.current ? "bg-accent" : "bg-line-strong",
+                  )}
+                />
+                <div
+                  className={cx(
+                    "mt-1.5 text-[11px] font-semibold",
+                    step.done ? "text-success" : step.current ? "text-fg" : "text-fg-faint",
+                  )}
+                >
+                  {step.label}
+                </div>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 text-sm text-fg-muted">{stageMessage}</p>
+        </Card>
+
+        <section className="mt-6">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <Eyebrow>Core</Eyebrow>
+            <span className="flex items-center gap-1 text-xs text-fg-faint">
+              {activeCoreLocked ? (
+                <>
+                  <Lock className="h-3 w-3 text-success" /> <span className="text-success">Locked</span>
+                </>
+              ) : (
+                `${coreScoredCount} of ${coreCategories.length} scored`
+              )}
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-3xl border border-line bg-surface">
+            {coreCategories.map(renderCategory)}
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <Eyebrow>After soft reveal</Eyebrow>
+            <span className="flex items-center gap-1 text-xs text-fg-faint">
+              {activeFinalLocked ? (
+                <>
+                  <Lock className="h-3 w-3 text-success" /> <span className="text-success">Locked</span>
+                </>
+              ) : revealScoringEnabled ? (
+                "Open"
+              ) : (
+                <>
+                  <Lock className="h-3 w-3" /> Opens when the host allows
+                </>
+              )}
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-3xl border border-line bg-surface">
+            {revealCategories.map(renderCategory)}
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <label htmlFor="pour-notes" className="mb-2 flex items-center justify-between px-1">
+            <Eyebrow>Tasting notes</Eyebrow>
+            <span className="text-xs text-fg-faint">Optional · saves as you type</span>
+          </label>
+          <textarea
+            id="pour-notes"
+            ref={notesRef}
+            value={activeDraft.notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Vanilla, caramel, a little orange peel"
+            className="min-h-[96px] w-full rounded-3xl border border-line bg-surface px-4 py-3 text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
+          />
+        </section>
+
+        <div className="mt-6 flex justify-center gap-2">
+          {hostDashboardUrl ? (
+            <Link href={hostDashboardUrl} className={buttonStyles({ variant: "ghost", size: "sm" })}>
+              Host dashboard
+            </Link>
+          ) : null}
+          <Link href="/profile" className={buttonStyles({ variant: "ghost", size: "sm" })}>
+            Your profile
+          </Link>
+        </div>
+      </div>
+
+      {/* Thumb-reach action bar */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas/95 backdrop-blur-md"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <div className="mx-auto flex max-w-md items-center gap-2 px-4 py-3">
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={goPrevPour}
+            disabled={!canGoPrev}
+            aria-label="Previous pour"
+            className="w-13 px-0"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <div className="min-w-0 flex-1">{primaryAction}</div>
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={goNextPour}
+            disabled={!canGoNext}
+            aria-label="Next pour"
+            className="w-13 px-0"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Button>
         </div>
       </div>
     </main>
