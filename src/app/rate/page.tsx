@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Star } from "lucide-react";
-import { HistoryEntryLink, HistoryList } from "@/components/history/profile-history";
+import { formatScore, HistoryEntryLink, HistoryList } from "@/components/history/profile-history";
 import { buttonStyles } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { Wordmark } from "@/components/ui/brand";
@@ -106,7 +106,7 @@ export default async function RatePage({ searchParams }: RatePageProps) {
                     title={getWhiskeyName(rating.whiskey)}
                     meta={formatRatedAt(rating.rated_at)}
                     notes={rating.notes || undefined}
-                    score={Number(rating.total_score ?? 0).toFixed(1)}
+                    score={formatScore(Number(rating.total_score ?? 0))}
                     scoreLabel="of 100"
                   />
                 </li>

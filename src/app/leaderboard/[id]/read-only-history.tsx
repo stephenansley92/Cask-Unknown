@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabaseClient";
 import {
   CategoryAverages,
   HistoryEntryLink,
+  formatScore,
   HistoryList,
   HistorySortSelect,
   RankedPours,
@@ -141,9 +142,7 @@ export default function ReadOnlyHistorySection({
                   : "--";
               const cardScoreText = activeSortCategory
                 ? `${activeCategoryScoreText}/${activeSortCategory.max}`
-                : isRateMode
-                  ? row.total.toFixed(1)
-                  : row.total.toFixed(0);
+                : formatScore(row.total);
               const cardScoreLabel = activeSortCategory
                 ? activeSortCategory.label
                 : "of 100";
@@ -159,7 +158,6 @@ export default function ReadOnlyHistorySection({
                     notes={row.notes}
                     score={cardScoreText}
                     scoreLabel={cardScoreLabel}
-                    rateMode={isRateMode}
                   />
                 </li>
               );

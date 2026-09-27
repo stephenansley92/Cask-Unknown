@@ -38,7 +38,7 @@ export function buttonStyles({
   className,
 }: ButtonStyleOptions = {}) {
   return cx(
-    "inline-flex shrink-0 items-center justify-center font-semibold select-none",
+    "inline-flex shrink-0 items-center justify-center whitespace-nowrap font-semibold select-none",
     "disabled:cursor-not-allowed disabled:opacity-45",
     VARIANTS[variant],
     SIZES[size],

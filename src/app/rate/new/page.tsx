@@ -80,7 +80,8 @@ export default async function RateNewPage() {
         <Wordmark />
       </header>
 
-      <div className="mt-6 animate-fade-slide-in">
+      {/* No entrance animation here: a transformed ancestor would pin the form's fixed action bar to this div instead of the viewport. */}
+      <div className="mt-6">
         <Eyebrow>Solo rating</Eyebrow>
         <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Rate a pour</h1>
         <p className="mt-1 text-sm text-fg-muted">

@@ -31,11 +31,13 @@ import {
   Star,
   Trophy,
   Upload,
+  Users,
 } from "lucide-react";
 import {
   CategoryAverages,
   HistoryEntryBody,
   HistoryEntryLink,
+  formatScore,
   HistoryList,
   HistorySortSelect,
   RankedPours,
@@ -1067,9 +1069,9 @@ export default function ProfilePage() {
                             </Link>
                             <Link
                               href={`/reveal/${group.sessionId}`}
-                              className={buttonStyles({ variant: revealed ? "primary" : "secondary", size: "sm" })}
+                              className={buttonStyles({ variant: "secondary", size: "sm" })}
                             >
-                              <Trophy className="h-3.5 w-3.5" /> {revealed ? "Results" : "Reveal"}
+                              <Trophy className="h-3.5 w-3.5 text-accent" /> {revealed ? "Results" : "Reveal"}
                             </Link>
                           </div>
                         </Card>
@@ -1124,8 +1126,8 @@ export default function ProfilePage() {
                   const cardScoreText = activeSortCategory && activeCategoryAvg !== null
                     ? `${activeCategoryAvg % 1 === 0 ? activeCategoryAvg.toFixed(0) : activeCategoryAvg.toFixed(1)}/${activeSortCategory.max}`
                     : group.isRate
-                      ? group.avgTotal.toFixed(1)
-                      : group.rows[0].total.toFixed(0);
+                      ? formatScore(group.avgTotal)
+                      : formatScore(group.rows[0].total);
                   const cardScoreLabel = activeSortCategory ? activeSortCategory.label : "of 100";
 
                   // Single entry — link directly to detail page
@@ -1143,7 +1145,6 @@ export default function ProfilePage() {
                           notes={row.notes}
                           score={cardScoreText}
                           scoreLabel={cardScoreLabel}
-                          rateMode={group.isRate}
                         />
                       </li>
                     );
@@ -1163,7 +1164,6 @@ export default function ProfilePage() {
                           meta={`Rated ${group.rows.length}× · average shown`}
                           score={cardScoreText}
                           scoreLabel={cardScoreLabel}
-                          rateMode
                         />
                         <ChevronDown
                           className={cx(
@@ -1187,7 +1187,7 @@ export default function ProfilePage() {
                                   </span>
                                   <span
                                     className={cx(
-                                      "mt-1 line-clamp-2 block text-sm",
+                                      "mt-1 line-clamp-2 text-sm",
                                       row.notes ? "text-fg-muted" : "italic text-fg-faint",
                                     )}
                                   >
@@ -1284,7 +1284,7 @@ export default function ProfilePage() {
                 {savingPublicProfile ? "Saving…" : "Save"}
               </Button>
               <Link href="/leaderboard" className={buttonStyles({ variant: "secondary", className: "flex-1" })}>
-                View Community
+                <Users className="h-4 w-4" /> Community
               </Link>
             </div>
           </Card>

@@ -4,6 +4,7 @@ import { loadPublicRateHistoryRecords } from "@/lib/profile-history/read-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/redirects";
 import { ChevronLeft } from "lucide-react";
+import { formatScore } from "@/components/history/profile-history";
 import { buttonStyles } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { Wordmark } from "@/components/ui/brand";
@@ -484,7 +485,7 @@ export default async function HistoryDetailPage({
       ].filter(Boolean);
 
       title = publicRating.whiskeyName;
-      subtitle = "Rate Mode";
+      subtitle = "Solo rating";
       detailsLine = [
         whiskeyMeta.length ? whiskeyMeta.join(" · ") : "",
         `Rated ${formatRatedAt(publicRating.createdAt)}`,
@@ -541,7 +542,7 @@ export default async function HistoryDetailPage({
       ].filter(Boolean);
 
       title = whiskey.name;
-      subtitle = "Rate Mode";
+      subtitle = "Solo rating";
       detailsLine = [
         whiskeyMeta.length ? whiskeyMeta.join(" · ") : "",
         `Rated ${formatRatedAt(rating.ratedAt)}`,
@@ -628,7 +629,7 @@ export default async function HistoryDetailPage({
           <h1 className="min-w-0 font-display text-3xl font-semibold tracking-tight">{title}</h1>
           <div className="shrink-0 text-right">
             <div className="font-display text-5xl font-semibold leading-none tabular-nums text-accent">
-              {totalScore.toFixed(1)}
+              {formatScore(totalScore)}
             </div>
             <div className="mt-1 text-[11px] font-semibold text-fg-faint">of 100</div>
           </div>

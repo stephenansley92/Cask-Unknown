@@ -61,7 +61,9 @@ function RankedList({ title, rows }: { title: string; rows: HistoryRow[] }) {
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold">{row.pourLabel}</span>
-              <span className="block truncate text-xs text-fg-faint">{row.sessionTitle}</span>
+              <span className="block truncate text-xs text-fg-faint">
+                {row.sessionId.startsWith("rate:") ? "Solo rating" : row.sessionTitle}
+              </span>
             </span>
             <span className="shrink-0 font-display text-lg font-semibold tabular-nums">
               {row.total.toFixed(0)}
@@ -142,24 +144,16 @@ type HistoryEntryProps = {
   notes?: string;
   score: string;
   scoreLabel: string;
-  /** Rate Mode entries get a small tag so they read apart from blind pours. */
-  rateMode?: boolean;
 };
 
-function HistoryEntryBody({ title, meta, notes, score, scoreLabel, rateMode }: HistoryEntryProps) {
+function HistoryEntryBody({ title, meta, notes, score, scoreLabel }: HistoryEntryProps) {
   return (
     <>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="truncate font-semibold">{title}</span>
-          {rateMode ? (
-            <span className="shrink-0 rounded-full bg-raised px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
-              Solo
-            </span>
-          ) : null}
-        </span>
+        <span className="block truncate font-semibold">{title}</span>
         <span className="mt-0.5 block truncate text-xs text-fg-faint">{meta}</span>
-        {notes ? <span className="mt-1.5 line-clamp-2 block text-sm text-fg-muted">{notes}</span> : null}
+        {/* line-clamp sets its own display; adding `block` would cancel the clamp. */}
+        {notes ? <span className="mt-1.5 line-clamp-2 text-sm text-fg-muted">{notes}</span> : null}
       </span>
       <span className="shrink-0 text-right">
         <span className="block font-display text-2xl font-semibold tabular-nums">{score}</span>
@@ -186,6 +180,11 @@ export function HistoryList({ children }: { children: ReactNode }) {
       {children}
     </ul>
   );
+}
+
+/** Whole scores print without a decimal; averages keep one. */
+export function formatScore(value: number) {
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
 }
 
 export { HistoryEntryBody };
