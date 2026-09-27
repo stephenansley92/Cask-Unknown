@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logEvent, newCorrelationId, userFacingError } from "@/lib/log";
+import { ChevronRight } from "lucide-react";
 import { buttonStyles } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Wordmark } from "@/components/ui/brand";
+import { cx } from "@/components/ui/cx";
 import { Notice } from "@/components/ui/notice";
 import { PageShell } from "@/components/ui/page";
 import { TabBar } from "@/components/ui/tab-bar";
@@ -57,7 +60,7 @@ export default async function LeaderboardPage() {
     const ref = newCorrelationId();
     logEvent("error", "community.load_failed", { ref, code: error.code, message: error.message });
     return (
-      <PageShell width="lg" bottomInset>
+      <PageShell width="md" bottomInset>
         <TabBar />
         <Wordmark />
         <h1 className="mt-6 font-display text-3xl font-semibold tracking-tight">Community</h1>
@@ -209,78 +212,74 @@ export default async function LeaderboardPage() {
   }).sort((a, b) => b.ratingCount - a.ratingCount);
 
   return (
-    <main className="min-h-screen bg-zinc-900 p-4 text-white sm:p-6">
-      <div className="mx-auto max-w-4xl">
-        <div className="rounded-3xl border border-zinc-700 bg-zinc-800 p-5 shadow-sm md:p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-sm text-zinc-400">Cask Unknown</div>
-              <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-                Community
-              </h1>
-              <p className="mt-2 text-sm text-zinc-400">
-                Public profiles only. Click a name to open that user&apos;s public profile.
-              </p>
-            </div>
+    <PageShell width="md" bottomInset>
+      <TabBar />
+      <div className="animate-fade-slide-in">
+        <header className="flex items-center justify-between">
+          <Wordmark />
+        </header>
 
-            <Link
-              href="/"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-700 px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-700 active:scale-95"
-            >
-              Back Home
-            </Link>
-          </div>
+        <h1 className="mt-8 font-display text-3xl font-semibold tracking-tight">Community</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Tasters with public profiles, ranked by how many pours they&apos;ve scored.
+        </p>
 
-          {rows.length === 0 ? (
-            <div className="mt-6 rounded-3xl border border-zinc-700 p-6 text-center">
-              <div className="text-lg font-semibold">No public profiles yet</div>
-              <div className="mt-2 text-sm text-zinc-400">
-                Community members will appear here once they have a public profile.
-              </div>
-            </div>
-          ) : (
-            <div className="mt-6 space-y-3">
-              {rows.map((row, idx) => {
-                const rank = idx + 1;
-                const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
-                return (
+        {rows.length === 0 ? (
+          <Card className="mt-6 text-center">
+            <div className="font-semibold">No public profiles yet</div>
+            <p className="mt-1 text-sm text-fg-muted">
+              Community members will appear here once they make their profile public.
+            </p>
+          </Card>
+        ) : (
+          <ol className="mt-6 overflow-hidden rounded-3xl border border-line bg-surface">
+            {rows.map((row, idx) => {
+              const rank = idx + 1;
+              const podium = rank <= 3;
+              return (
+                <li key={row.userId} className="border-b border-line last:border-b-0">
                   <Link
-                    key={row.userId}
                     href={`/leaderboard/${row.userId}`}
-                    className="block rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4 hover:bg-zinc-700 active:scale-[0.98] transition-all"
+                    className="flex items-center gap-3 px-4 py-3.5 hover:bg-raised"
                   >
-                    <div className="flex items-center gap-3 md:gap-4">
-                      <div className="shrink-0 w-9 text-center">
-                        {medal ? (
-                          <span className="text-2xl leading-none">{medal}</span>
-                        ) : (
-                          <span className="text-sm font-bold text-zinc-400 tabular-nums">#{rank}</span>
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-white truncate">
-                          {row.displayName}
-                        </div>
-                        <div className="mt-0.5 text-xs text-zinc-400">
-                          {row.ratingCount} rating{row.ratingCount === 1 ? "" : "s"}
-                        </div>
-                      </div>
-
-                      <div className="shrink-0 text-right">
-                        <div className="text-2xl font-extrabold tabular-nums text-white">
-                          {row.averageScore.toFixed(1)}
-                        </div>
-                        <div className="text-xs text-zinc-400">avg</div>
-                      </div>
-                    </div>
+                    <span
+                      className={cx(
+                        "w-7 shrink-0 text-center font-display font-semibold tabular-nums",
+                        podium ? "text-lg text-accent" : "text-sm text-fg-faint",
+                      )}
+                      aria-label={`Rank ${rank}`}
+                    >
+                      {rank}
+                    </span>
+                    <span
+                      aria-hidden
+                      className={cx(
+                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display font-semibold",
+                        podium ? "bg-accent-soft text-accent" : "bg-raised text-fg-muted",
+                      )}
+                    >
+                      {row.displayName.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold">{row.displayName}</span>
+                      <span className="block text-xs text-fg-faint">
+                        {row.ratingCount} rating{row.ratingCount === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block font-display text-2xl font-semibold tabular-nums">
+                        {row.ratingCount ? row.averageScore.toFixed(1) : "–"}
+                      </span>
+                      <span className="block text-[11px] text-fg-faint">avg</span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-fg-faint" />
                   </Link>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
       </div>
-    </main>
+    </PageShell>
   );
 }

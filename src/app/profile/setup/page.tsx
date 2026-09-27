@@ -1,6 +1,12 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/redirects";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Wordmark } from "@/components/ui/brand";
+import { FieldLabel, inputStyles } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
 import { saveProfileSetupAction } from "./actions";
 
 type ProfileSetupPageProps = {
@@ -44,50 +50,46 @@ export default async function ProfileSetupPage({
       : "";
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6 flex items-center justify-center">
-      <div className="w-full max-w-md rounded-3xl border border-zinc-700 bg-zinc-800 p-6 shadow-sm">
-        <div className="text-sm text-zinc-400">Cask Unknown</div>
-        <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-          Profile Setup
-        </h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          Choose the display name that should represent your account in the app.
-        </p>
+    <PageShell center>
+      <div className="w-full animate-fade-slide-in">
+        <div className="text-center">
+          <Wordmark size="lg" />
+          <h1 className="mt-6 font-display text-2xl font-semibold tracking-tight">What should we call you?</h1>
+          <p className="mt-1 text-sm text-fg-muted">
+            Your name shows up on reveals, leaderboards, and your public profile.
+          </p>
+        </div>
 
         {message ? (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <Notice tone="danger" className="mt-6">
             {message}
-          </div>
+          </Notice>
         ) : null}
 
-        <form action={saveProfileSetupAction} className="mt-6 space-y-4">
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-          <div>
-            <label
-              htmlFor="displayName"
-              className="block text-sm font-semibold text-zinc-200"
-            >
-              Display name
-            </label>
-            <input
-              id="displayName"
-              name="displayName"
-              type="text"
-              required
-              maxLength={80}
-              className="mt-2 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-              placeholder="Your tasting name"
-            />
-          </div>
+        <Card className="mt-6">
+          <form action={saveProfileSetupAction} className="space-y-4">
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <div>
+              <FieldLabel htmlFor="displayName">Display name</FieldLabel>
+              <input
+                id="displayName"
+                name="displayName"
+                type="text"
+                required
+                autoFocus
+                maxLength={80}
+                autoComplete="nickname"
+                className={inputStyles()}
+                placeholder="Your tasting name"
+              />
+            </div>
 
-          <button
-            type="submit"
-            className="w-full rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-95 px-5 py-3 font-semibold text-black"
-          >
-            Save &amp; Continue
-          </button>
-        </form>
+            <Button type="submit" variant="primary" size="lg" block>
+              Save &amp; continue
+            </Button>
+          </form>
+        </Card>
       </div>
-    </main>
+    </PageShell>
   );
 }

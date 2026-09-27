@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type TouchEvent,
+} from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Plus } from "lucide-react";
+import { Check, ChevronDown, Info, Plus, Search } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type {
   RateTemplate,
@@ -19,6 +26,11 @@ import {
   type WhiskeyOption,
   WHISKEY_SELECT_COLUMNS,
 } from "@/lib/whiskey/schema";
+import { Button } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { cx } from "@/components/ui/cx";
+import { inputStyles } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
 
 type RateNewFormProps = {
   userId: string;
@@ -103,7 +115,7 @@ function whiskeyToFormValues(whiskey: WhiskeyOption): WhiskeyFormValues {
   };
 }
 
-const INPUT_CLS = "w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30";
+const INPUT_CLS = inputStyles({ size: "sm" });
 
 export function RateNewForm({
   userId,
@@ -327,6 +339,7 @@ export function RateNewForm({
       );
       if (existingLocal) {
         setSelectedWhiskeyId(existingLocal.id);
+        setShowSearchResults(false);
         setSearch("");
         setNewWhiskey(EMPTY_WHISKEY_FORM_VALUES);
         setIsCreateWhiskeyOpen(false);
@@ -425,6 +438,7 @@ export function RateNewForm({
       return [created!, ...prev];
     });
     setSelectedWhiskeyId(created.id);
+    setShowSearchResults(false);
     setSearch("");
     setNewWhiskey(EMPTY_WHISKEY_FORM_VALUES);
     setIsCreateWhiskeyOpen(false);
@@ -497,117 +511,88 @@ export function RateNewForm({
   };
 
   return (
-    <div className="space-y-6 pt-20 sm:pt-0">
-      <div
-        className="pointer-events-none fixed right-3 top-3 z-[60] min-w-[104px] rounded-2xl border border-amber-500/50 bg-zinc-950/95 px-3 py-2 text-right shadow-lg shadow-black/30 backdrop-blur sm:right-4 sm:top-4"
-        style={{
-          top: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
-          right: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
-        }}
-        aria-live="polite"
-      >
-        <div className="text-[10px] font-semibold uppercase tracking-normal text-amber-400">Score</div>
-        <div className="text-2xl font-extrabold tabular-nums leading-none text-white">
-          {totalScore}
-          <span className="text-sm text-zinc-400 font-semibold">/100</span>
-        </div>
-      </div>
+    <div className="space-y-3">
       {/* ── 1. Select whiskey ─────────────────────────────────── */}
-      <div className="rounded-3xl border border-zinc-700 p-5">
-        <div className="text-sm font-semibold text-zinc-200">
-          1. Select a whiskey
-        </div>
-        <div className="mt-3">
-          <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-            Search
-          </label>
-          <input
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setShowSearchResults(true);
-            }}
-            placeholder="Search whiskey library"
-            className={`mt-2 ${INPUT_CLS}`}
-          />
-        </div>
+      <Card>
+        <Eyebrow>1 · Whiskey</Eyebrow>
 
-        {showSearchResults ? (
-          <div className="mt-4 space-y-2">
-            {filteredWhiskeys.length === 0 ? (
-              <div className="rounded-2xl bg-zinc-900 border border-zinc-700 px-4 py-4 text-sm text-zinc-400">
-                {!shouldSearchWhiskeyLibrary
-                  ? whiskeys.length === 0
-                    ? "No whiskeys yet. Create one below to continue."
-                    : "Start typing to search the whiskey library."
-                  : "No whiskeys match your search."}
-              </div>
-            ) : (
-              filteredWhiskeys.map((whiskey) => {
-                const isSelected = selectedWhiskeyId === whiskey.id;
-                const primaryMeta = whiskeyPrimaryMeta(whiskey);
-                const secondaryMeta = whiskeySecondaryMeta(whiskey);
-
-                return (
-                  <button
-                    key={whiskey.id}
-                    type="button"
-                    onClick={() => handleSelectWhiskey(whiskey)}
-                    className={[
-                      "w-full text-left rounded-2xl border px-4 py-3 active:scale-[0.99]",
-                      isSelected
-                        ? "border-amber-500 bg-amber-500/15 text-white"
-                        : "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-700",
-                    ].join(" ")}
-                  >
-                    <div className="font-semibold">{whiskey.name}</div>
-                    {primaryMeta ? (
-                      <div
-                        className={[
-                          "mt-1 text-xs",
-                          isSelected ? "text-amber-200" : "text-zinc-400",
-                        ].join(" ")}
-                      >
-                        {primaryMeta}
-                      </div>
-                    ) : null}
-                    {secondaryMeta ? (
-                      <div
-                        className={[
-                          "mt-1 text-[11px]",
-                          isSelected ? "text-amber-300/70" : "text-zinc-500",
-                        ].join(" ")}
-                      >
-                        {secondaryMeta}
-                      </div>
-                    ) : null}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        ) : null}
-
-        {selectedWhiskey ? (
-          <div className="mt-4 rounded-2xl bg-zinc-900 border border-amber-500/40 px-4 py-4">
-            <div className="text-xs text-zinc-400">Selected whiskey</div>
-            <div className="mt-1 font-semibold text-white">
-              {selectedWhiskey.name}
+        {selectedWhiskey && !showSearchResults ? (
+          <div className="mt-3 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent-soft px-4 py-3">
+            <Check className="h-5 w-5 shrink-0 text-accent" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-semibold">{selectedWhiskey.name}</div>
+              {whiskeyPrimaryMeta(selectedWhiskey) ? (
+                <div className="truncate text-xs text-fg-muted">{whiskeyPrimaryMeta(selectedWhiskey)}</div>
+              ) : null}
             </div>
-            {whiskeyPrimaryMeta(selectedWhiskey) ? (
-              <div className="mt-1 text-xs text-zinc-400">
-                {whiskeyPrimaryMeta(selectedWhiskey)}
-              </div>
-            ) : null}
-            <div className="mt-1 text-xs text-zinc-500">
-              You can start scoring below.
-            </div>
+            <Button variant="ghost" size="sm" onClick={() => setShowSearchResults(true)}>
+              Change
+            </Button>
           </div>
-        ) : null}
-      </div>
+        ) : (
+          <>
+            <div className="relative mt-3">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint" />
+              <label htmlFor="whiskey-search" className="sr-only">
+                Search the whiskey library
+              </label>
+              <input
+                id="whiskey-search"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setShowSearchResults(true);
+                }}
+                placeholder="Search the whiskey library"
+                autoComplete="off"
+                className={inputStyles({ className: "pl-10" })}
+              />
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {filteredWhiskeys.length === 0 ? (
+                <p className="px-1 text-sm text-fg-faint">
+                  {!shouldSearchWhiskeyLibrary
+                    ? whiskeys.length === 0
+                      ? "No whiskeys yet. Add one below to continue."
+                      : "Start typing to search the library."
+                    : "No whiskeys match. Add it as a new bottle below."}
+                </p>
+              ) : (
+                filteredWhiskeys.map((whiskey) => {
+                  const isSelected = selectedWhiskeyId === whiskey.id;
+                  const primaryMeta = whiskeyPrimaryMeta(whiskey);
+                  const secondaryMeta = whiskeySecondaryMeta(whiskey);
+
+                  return (
+                    <button
+                      key={whiskey.id}
+                      type="button"
+                      onClick={() => handleSelectWhiskey(whiskey)}
+                      aria-pressed={isSelected}
+                      className={cx(
+                        "w-full rounded-2xl border px-4 py-3 text-left",
+                        isSelected
+                          ? "border-accent bg-accent-soft"
+                          : "border-line bg-sunken hover:border-line-strong",
+                      )}
+                    >
+                      <div className="font-semibold">{whiskey.name}</div>
+                      {primaryMeta ? <div className="mt-0.5 text-xs text-fg-muted">{primaryMeta}</div> : null}
+                      {secondaryMeta ? (
+                        <div className="mt-0.5 text-[11px] text-fg-faint">{secondaryMeta}</div>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
+      </Card>
 
       {/* ── 2. Create new whiskey ──────────────────────────────── */}
-      <div className="rounded-3xl border border-zinc-700 p-5">
+      <Card>
         <button
           type="button"
           onClick={() => setIsCreateWhiskeyOpen((open) => !open)}
@@ -615,249 +600,256 @@ export function RateNewForm({
           className="flex w-full items-center justify-between gap-4 text-left"
         >
           <span className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-raised text-accent">
               <Plus className="h-4 w-4" aria-hidden="true" />
             </span>
             <span className="min-w-0">
-              <span className="block text-sm font-semibold text-zinc-200">
-                2. Create new whiskey
-              </span>
-              <span className="mt-0.5 block text-xs text-zinc-500">
-                Add a bottle only if it is not already in the library.
+              <span className="block font-semibold">Add a new bottle</span>
+              <span className="mt-0.5 block text-xs text-fg-muted">
+                Only if it isn&apos;t already in the library.
               </span>
             </span>
           </span>
           <ChevronDown
-            className={[
-              "h-5 w-5 shrink-0 text-zinc-400 transition-transform duration-150",
-              isCreateWhiskeyOpen ? "rotate-180" : "",
-            ].join(" ")}
+            className={cx(
+              "h-5 w-5 shrink-0 text-fg-faint transition-transform duration-150",
+              isCreateWhiskeyOpen && "rotate-180",
+            )}
             aria-hidden="true"
           />
         </button>
 
         {isCreateWhiskeyOpen ? (
-          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-zinc-700 pt-4">
+          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-line pt-4">
             <input
               value={newWhiskey.name}
               onChange={(e) => updateNewWhiskey("name", e.target.value)}
               placeholder="Name (required, e.g. Eagle Rare 10)"
+              aria-label="Name"
               className={INPUT_CLS}
             />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-3">
               <input
                 value={newWhiskey.distillery}
                 onChange={(e) => updateNewWhiskey("distillery", e.target.value)}
-                placeholder="Distillery (optional, e.g. Buffalo Trace)"
+                placeholder="Distillery"
+                aria-label="Distillery"
                 className={INPUT_CLS}
               />
               <input
                 value={newWhiskey.proof}
                 onChange={(e) => updateNewWhiskey("proof", e.target.value)}
-                placeholder="Proof (optional, e.g. 125)"
+                placeholder="Proof"
+                aria-label="Proof"
                 inputMode="decimal"
                 className={INPUT_CLS}
               />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input
                 value={newWhiskey.bottleSize}
                 onChange={(e) => updateNewWhiskey("bottleSize", e.target.value)}
-                placeholder="Bottle size (optional, e.g. 750ml)"
+                placeholder="Size (750ml)"
+                aria-label="Bottle size"
                 className={INPUT_CLS}
               />
               <input
                 value={newWhiskey.age}
                 onChange={(e) => updateNewWhiskey("age", e.target.value)}
-                placeholder="Age (optional, e.g. 10 years)"
+                placeholder="Age (10 years)"
+                aria-label="Age"
                 className={INPUT_CLS}
               />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input
                 value={newWhiskey.category}
                 onChange={(e) => updateNewWhiskey("category", e.target.value)}
-                placeholder="Category (optional, e.g. Whiskey)"
+                placeholder="Category"
+                aria-label="Category"
                 className={INPUT_CLS}
               />
               <input
                 value={newWhiskey.subcategory}
                 onChange={(e) => updateNewWhiskey("subcategory", e.target.value)}
-                placeholder="Subcategory (optional, e.g. Bourbon)"
+                placeholder="Subcategory"
+                aria-label="Subcategory"
                 className={INPUT_CLS}
               />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input
                 value={newWhiskey.rarity}
                 onChange={(e) => updateNewWhiskey("rarity", e.target.value)}
-                placeholder="Rarity (optional, e.g. Limited release)"
+                placeholder="Rarity"
+                aria-label="Rarity"
                 className={INPUT_CLS}
               />
               <input
                 value={newWhiskey.status}
                 onChange={(e) => updateNewWhiskey("status", e.target.value)}
-                placeholder="Status (optional, e.g. Open)"
+                placeholder="Status (Open)"
+                aria-label="Status"
                 className={INPUT_CLS}
               />
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-3">
               <input
                 value={newWhiskey.msrp}
                 onChange={(e) => updateNewWhiskey("msrp", e.target.value)}
-                placeholder="MSRP (optional, e.g. 59.99)"
+                placeholder="MSRP"
+                aria-label="MSRP"
                 inputMode="decimal"
                 className={INPUT_CLS}
               />
               <input
                 value={newWhiskey.secondary}
                 onChange={(e) => updateNewWhiskey("secondary", e.target.value)}
-                placeholder="Secondary (optional, e.g. 149.99)"
+                placeholder="Secondary"
+                aria-label="Secondary price"
                 inputMode="decimal"
                 className={INPUT_CLS}
               />
               <input
                 value={newWhiskey.paid}
                 onChange={(e) => updateNewWhiskey("paid", e.target.value)}
-                placeholder="Paid (optional, e.g. 79.99)"
+                placeholder="Paid"
+                aria-label="Price paid"
                 inputMode="decimal"
                 className={INPUT_CLS}
               />
             </div>
-            <button
-              type="button"
-              onClick={createWhiskey}
-              disabled={creatingWhiskey}
-              className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-700 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 active:scale-95 disabled:opacity-60"
-            >
-              {creatingWhiskey ? "Creating..." : "Create & Select"}
-            </button>
+            <Button variant="secondary" onClick={createWhiskey} disabled={creatingWhiskey}>
+              {creatingWhiskey ? "Adding…" : "Add & select"}
+            </Button>
           </div>
         ) : null}
-      </div>
+      </Card>
 
       {/* ── 3. Score ──────────────────────────────────────────── */}
-      <div className="rounded-3xl border border-zinc-700 p-5">
-        <div>
-          <div>
-            <div className="text-sm font-semibold text-zinc-200">
-              3. Score with {template.name}
-            </div>
-            <div className="mt-1 text-xs text-zinc-400">
-              Uses the Blind Mode scoring template in the same order and weights.
-            </div>
-          </div>
+      <Card padded={false}>
+        <div className="px-4 pt-4">
+          <Eyebrow>2 · Score</Eyebrow>
+          <p className="mt-1 text-xs text-fg-faint">
+            {template.name} · same categories and weights as a blind tasting.
+          </p>
         </div>
 
-        <div className="mt-4 space-y-0">
-          {items.map((item) =>
-            (() => {
-              const blindSetting = getBlindModeCategorySetting(item.itemKey);
-              const min = blindSetting?.min ?? 0;
-              const max = blindSetting?.max ?? item.maxPoints;
-              const value = scoresByItemId[item.id] ?? 0;
-              const isExpanded = expandedItemId === item.id;
+        <div className="mt-2">
+          {items.map((item) => {
+            const blindSetting = getBlindModeCategorySetting(item.itemKey);
+            const min = blindSetting?.min ?? 0;
+            const max = blindSetting?.max ?? item.maxPoints;
+            const value = scoresByItemId[item.id] ?? 0;
+            const isExpanded = expandedItemId === item.id;
+            const label = blindSetting?.label || item.label;
+            const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+            const detailsId = `rate-item-${item.id}-details`;
 
-              return (
-                <div
-                  key={item.id}
-                  className="border-t border-zinc-700 pt-4 mt-4 first:border-t-0 first:pt-0 first:mt-0"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
-                    className="w-full flex items-center justify-between text-left"
-                  >
-                    <div className="font-semibold text-zinc-100">
-                      {blindSetting?.label || item.label}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs text-zinc-400">
-                        [{min}–{max}]{" "}
-                        <span className="font-semibold text-zinc-200 tabular-nums">{value}</span>
-                      </span>
-                      {blindSetting ? (
-                        <span className={["text-zinc-500 text-xs transition-transform duration-150", isExpanded ? "rotate-90" : ""].join(" ")}>▸</span>
-                      ) : null}
-                    </div>
-                  </button>
-
-                  {isExpanded && blindSetting ? (
-                    <div className="mt-1.5 text-xs leading-5 text-zinc-400 animate-fade-in">
-                      {blindSetting.description}
-                      <br />
-                      <span className="text-zinc-500">{blindSetting.examples}</span>
-                    </div>
-                  ) : null}
-
-                  <div className="mt-2">
-                    <div className="relative">
-                      <input
-                        type="range"
-                        min={min}
-                        max={max}
-                        step={1}
-                        value={value}
-                        onChange={(e) => {
-                          if (activeSliderTouch.current) return;
-                          setSliderValue(item.id, Number(e.target.value), min, max);
-                        }}
-                        onTouchStart={(e) => handleSliderTouchStart(item.id, min, max, e)}
-                        onTouchMove={handleSliderTouchMove}
-                        onTouchEnd={handleSliderTouchEnd}
-                        onTouchCancel={() => {
-                          activeSliderTouch.current = null;
-                          setDraggingItemId(null);
-                        }}
-                        disabled={isScrollLocked}
-                        className={["w-full cask-slider", isScrollLocked ? "opacity-40" : "opacity-100"].join(" ")}
-                        style={{
-                          touchAction: "pan-y",
-                          background: `linear-gradient(to right, #f59e0b 0%, #f59e0b ${((value - min) / (max - min)) * 100}%, #3f3f46 ${((value - min) / (max - min)) * 100}%, #3f3f46 100%)`,
-                        }}
-                      />
-                      {draggingItemId === item.id && (
-                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white text-sm font-extrabold px-3 py-1 rounded-xl pointer-events-none tabular-nums border border-zinc-700">
-                          {value}
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-1 flex justify-between text-[11px] text-zinc-500 tabular-nums">
-                      <span>{min}</span>
-                      <span>{max}</span>
-                    </div>
+            return (
+              <div key={item.id} className="border-b border-line px-4 py-4 last:border-b-0">
+                <div className="flex items-center justify-between gap-3">
+                  {blindSetting ? (
+                    <button
+                      type="button"
+                      onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
+                      aria-expanded={isExpanded}
+                      aria-controls={detailsId}
+                      className="-m-1 flex items-center gap-1.5 rounded-lg p-1 text-left font-semibold text-fg"
+                    >
+                      {label}
+                      <Info className={cx("h-3.5 w-3.5", isExpanded ? "text-accent" : "text-fg-faint")} />
+                    </button>
+                  ) : (
+                    <span className="font-semibold">{label}</span>
+                  )}
+                  <div className="tabular-nums">
+                    <span className={cx("text-lg font-bold", value > 0 ? "text-accent" : "text-fg-faint")}>
+                      {value}
+                    </span>
+                    <span className="text-sm text-fg-faint"> / {max}</span>
                   </div>
                 </div>
-              );
-            })()
-          )}
-        </div>
 
-        <div className="mt-5 border-t border-zinc-700 pt-4">
-          <label className="block text-sm font-semibold text-zinc-200">Notes</label>
-          <textarea
-            ref={notesRef}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional notes"
-            className="mt-2 w-full min-h-[96px] rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-          />
-        </div>
+                {isExpanded && blindSetting ? (
+                  <p id={detailsId} className="mt-1 text-xs leading-5 text-fg-muted animate-fade-in">
+                    {blindSetting.description} <span className="text-fg-faint">{blindSetting.examples}</span>
+                  </p>
+                ) : null}
 
-        {error ? (
-          <div className="mt-4 rounded-2xl border border-red-800 bg-red-900/30 px-4 py-3 text-sm text-red-300">
-            {error}
+                <div className="relative mt-3 py-1">
+                  <input
+                    type="range"
+                    min={min}
+                    max={max}
+                    step={1}
+                    value={value}
+                    aria-label={`${label} score`}
+                    aria-valuetext={`${value} of ${max}`}
+                    onChange={(e) => {
+                      if (activeSliderTouch.current) return;
+                      setSliderValue(item.id, Number(e.target.value), min, max);
+                    }}
+                    onTouchStart={(e) => handleSliderTouchStart(item.id, min, max, e)}
+                    onTouchMove={handleSliderTouchMove}
+                    onTouchEnd={handleSliderTouchEnd}
+                    onTouchCancel={() => {
+                      activeSliderTouch.current = null;
+                      setDraggingItemId(null);
+                    }}
+                    disabled={isScrollLocked}
+                    className={cx("cask-slider block w-full", isScrollLocked && "opacity-50")}
+                    style={{ touchAction: "pan-y", "--fill": `${pct}%` } as CSSProperties}
+                  />
+                  {draggingItemId === item.id && (
+                    <div
+                      className="pointer-events-none absolute -top-9 -translate-x-1/2 rounded-xl bg-accent px-3 py-1 text-sm font-extrabold tabular-nums text-on-accent shadow-lg"
+                      style={{ left: `calc(${pct}% + ${12 - pct * 0.24}px)` }}
+                    >
+                      {value}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* ── 4. Notes ──────────────────────────────────────────── */}
+      <Card>
+        <label htmlFor="rate-notes">
+          <Eyebrow>3 · Notes</Eyebrow>
+        </label>
+        <textarea
+          id="rate-notes"
+          ref={notesRef}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Nose, palate, finish… anything you want to remember."
+          className={inputStyles({ kind: "textarea", className: "mt-3 min-h-[96px]" })}
+        />
+      </Card>
+
+      {error ? <Notice tone="danger">{error}</Notice> : null}
+
+      {/* Thumb-reach action bar with the live total */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas/95 backdrop-blur-md"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <div className="mx-auto flex max-w-md items-center gap-4 px-4 py-3">
+          <div className="shrink-0" aria-live="polite">
+            <div className="text-[11px] font-semibold text-fg-faint">Total</div>
+            <div className="font-display text-3xl font-semibold leading-none tabular-nums">
+              <span className={totalScore > 0 ? "text-accent" : "text-fg-faint"}>{totalScore}</span>
+              <span className="text-sm text-fg-faint">/100</span>
+            </div>
           </div>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={saveRating}
-          disabled={savingRating || creatingWhiskey || items.length === 0}
-          className="mt-4 w-full rounded-2xl px-5 py-3 font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 text-black disabled:opacity-60"
-        >
-          {savingRating ? "Saving..." : "Save Rating"}
-        </button>
+          <Button
+            variant="primary"
+            size="lg"
+            block
+            onClick={saveRating}
+            disabled={savingRating || creatingWhiskey || items.length === 0}
+          >
+            {savingRating ? "Saving…" : "Save rating"}
+          </Button>
+        </div>
       </div>
     </div>
   );

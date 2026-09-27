@@ -1,10 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isAuthSessionMissingError } from "@supabase/supabase-js";
+import { Link2, Plus, Smartphone, Trophy, X } from "lucide-react";
 import { listHostedSessions } from "@/lib/session-api";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { LoadingDots, Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { StatusPill } from "@/components/ui/status-pill";
+import { TabBar } from "@/components/ui/tab-bar";
+import { Toast, useToast } from "@/components/ui/toast";
 
 type SavedSession = {
   id: string;
@@ -64,7 +74,7 @@ export default function SessionsPage() {
   const [deviceSessions, setDeviceSessions] = useState<SavedSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [copyHint, setCopyHint] = useState("");
+  const toast = useToast();
 
   useEffect(() => {
     const load = async () => {
@@ -138,134 +148,108 @@ export default function SessionsPage() {
     try {
       const url = `${window.location.origin}/join/${id}`;
       await navigator.clipboard.writeText(url);
-      setCopyHint("Join link copied.");
-      window.setTimeout(() => setCopyHint(""), 1800);
+      toast.show("Join link copied.");
     } catch {
-      setCopyHint("Could not copy link.");
-      window.setTimeout(() => setCopyHint(""), 2500);
+      toast.show("Could not copy link.");
     }
   };
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6">
-      {copyHint ? (
-        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 shadow-lg">
-          {copyHint}
-        </div>
-      ) : null}
+    <PageShell bottomInset>
+      <TabBar />
+      <Toast message={toast.message} />
 
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-xs text-zinc-400">Cask Unknown</div>
-              <div className="text-2xl font-extrabold tracking-tight mt-1">
-                My Sessions
-              </div>
-              <div className="text-sm text-zinc-400 mt-1">
-                Sessions hosted by your account, plus older sessions saved on this device.
-              </div>
-            </div>
-            <button
-              onClick={() => router.push("/")}
-              className="rounded-2xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-700"
-            >
-              Home
-            </button>
+      <div className="animate-fade-slide-in">
+        <header className="flex items-center justify-between">
+          <Wordmark />
+          <Link href="/create" className={buttonStyles({ variant: "primary", size: "sm" })}>
+            <Plus className="h-4 w-4" /> New tasting
+          </Link>
+        </header>
+
+        <h1 className="mt-8 font-display text-3xl font-semibold tracking-tight">Your tastings</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Sessions you&apos;ve hosted, plus older ones saved on this device.
+        </p>
+
+        {error ? (
+          <Notice tone="danger" className="mt-4">
+            {error}
+          </Notice>
+        ) : null}
+
+        {loading ? (
+          <div className="mt-12 flex justify-center">
+            <LoadingDots label="Loading sessions" />
           </div>
-
-          {error ? (
-            <div className="mt-4 rounded-2xl border border-red-800 bg-red-900/30 px-4 py-3 text-sm text-red-300">
-              {error}
-            </div>
-          ) : null}
-
-          {loading ? (
-            <div className="mt-6 rounded-3xl border border-zinc-700 p-6 text-center text-sm text-zinc-400">
-              Loading sessions...
-            </div>
-          ) : sessions.length === 0 ? (
-            <div className="mt-6 rounded-3xl border border-zinc-700 p-6 text-center">
-              <div className="text-zinc-400 text-sm">
-                No hosted sessions found for this account.
-              </div>
-              <button
-                onClick={() => router.push("/create")}
-                className="mt-4 rounded-2xl bg-amber-500 px-5 py-3 text-sm font-semibold text-black hover:bg-amber-600 active:scale-95"
-              >
-                Create a Session
-              </button>
-            </div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              {sessions.map((session) => (
-                <div
-                  key={`${session.source}-${session.id}`}
-                  className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4"
-                >
+        ) : sessions.length === 0 ? (
+          <Card className="mt-6 text-center">
+            <div className="font-semibold">No tastings yet</div>
+            <p className="mt-1 text-sm text-fg-muted">Host your first blind flight and it will show up here.</p>
+            <Link href="/create" className={buttonStyles({ variant: "primary", size: "md", className: "mt-4" })}>
+              <Plus className="h-4 w-4" /> Host a tasting
+            </Link>
+          </Card>
+        ) : (
+          <ul className="mt-6 space-y-3">
+            {sessions.map((session) => (
+              <li key={`${session.source}-${session.id}`}>
+                <Card padded={false} className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="font-semibold truncate">{session.title}</div>
-                        <span className="rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                          {session.source === "account" ? "Account" : "This device"}
-                        </span>
-                      </div>
-                      <div className="text-xs text-zinc-400 mt-1">
+                      <div className="truncate font-semibold">{session.title}</div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-fg-faint">
                         {formatDate(session.createdAt)}
-                        {session.status ? ` - ${session.status}` : ""}
+                        {session.source === "device" ? (
+                          <>
+                            <span aria-hidden>·</span>
+                            <Smartphone className="h-3 w-3" /> This device
+                          </>
+                        ) : null}
                       </div>
                     </div>
                     {session.source === "device" ? (
                       <button
+                        type="button"
                         onClick={() => removeDeviceSession(session.id)}
-                        className="text-zinc-400 hover:text-red-400 active:scale-95 text-lg leading-none font-bold shrink-0"
+                        className="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-fg-faint hover:bg-raised hover:text-danger"
                         aria-label="Forget device session"
                       >
-                        x
+                        <X className="h-4 w-4" />
                       </button>
-                    ) : null}
+                    ) : (
+                      <StatusPill status={session.status} />
+                    )}
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      onClick={() =>
-                        router.push(
-                          `/host/${session.id}?key=${encodeURIComponent(session.key)}`
-                        )
-                      }
-                      className="rounded-xl bg-zinc-800 px-4 py-2 text-xs font-semibold text-white hover:bg-zinc-700 active:scale-95"
+                  <div className="mt-4 flex gap-2">
+                    <Link
+                      href={`/host/${session.id}?key=${encodeURIComponent(session.key)}`}
+                      className={buttonStyles({ variant: "secondary", size: "sm", className: "flex-1" })}
                     >
-                      Host Dashboard
-                    </button>
-                    <button
-                      onClick={() => router.push(`/reveal/${session.id}`)}
-                      className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 active:scale-95"
+                      Dashboard
+                    </Link>
+                    <Link
+                      href={`/reveal/${session.id}`}
+                      className={buttonStyles({ variant: "secondary", size: "sm", className: "flex-1" })}
                     >
-                      Results
-                    </button>
-                    <button
+                      <Trophy className="h-3.5 w-3.5 text-accent" /> Results
+                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => copyJoinLink(session.id)}
-                      className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 active:scale-95"
+                      aria-label={`Copy join link for ${session.title}`}
                     >
-                      Copy Join Link
-                    </button>
+                      <Link2 className="h-4 w-4" />
+                    </Button>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="mt-5">
-            <button
-              onClick={() => router.push("/create")}
-              className="w-full rounded-2xl bg-amber-500 py-3 font-semibold text-black hover:bg-amber-600 active:scale-95"
-            >
-              + New Session
-            </button>
-          </div>
-        </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-    </main>
+    </PageShell>
   );
 }

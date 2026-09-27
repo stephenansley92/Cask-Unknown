@@ -1,10 +1,19 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isAuthSessionMissingError } from "@supabase/supabase-js";
+import { ChevronLeft, EyeOff, GlassWater } from "lucide-react";
 import { createHostedSession } from "@/lib/session-api";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { Wordmark } from "@/components/ui/brand";
+import { cx } from "@/components/ui/cx";
+import { FieldLabel, inputStyles } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
 
 function defaultTitle() {
   const d = new Date();
@@ -23,7 +32,8 @@ export default function CreatePage() {
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState<string>("");
 
-  const createSession = async () => {
+  const createSession = async (e: FormEvent) => {
+    e.preventDefault();
     try {
       setBusy(true);
       setError("");
@@ -80,75 +90,83 @@ export default function CreatePage() {
   };
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-6 flex items-center justify-center">
-      <div className="w-full max-w-lg bg-zinc-800 border border-zinc-700 rounded-3xl p-6 md:p-8 shadow-lg">
-        <div className="text-sm text-zinc-400">Cask Unknown</div>
-        <h1 className="text-3xl font-extrabold text-amber-400 mt-2">
-          Create a Session
-        </h1>
+    <PageShell>
+      <header className="flex items-center justify-between">
+        <Link href="/" className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Home
+        </Link>
+        <Wordmark />
+      </header>
 
-        <div className="mt-6 space-y-4">
+      <form onSubmit={createSession} className="mt-6 animate-fade-slide-in">
+        <Eyebrow>New tasting</Eyebrow>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Host a tasting</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Name the flight, then add pours and invite tasters from the host dashboard.
+        </p>
+
+        <Card className="mt-6 space-y-5">
           <div>
-            <div className="text-sm text-zinc-300 mb-2">Session Title</div>
+            <FieldLabel htmlFor="session-title">Session title</FieldLabel>
             <input
+              id="session-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g., Super Bowl Blind Flight"
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+              maxLength={120}
+              className={inputStyles()}
             />
           </div>
 
-          <div className="flex items-center justify-between bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3">
-            <div>
-              <div className="font-semibold text-zinc-200">Blind mode</div>
-              <div className="text-xs text-zinc-500">
-                Keeps bottle names hidden until Reveal
-              </div>
-            </div>
-
-            <button
-              onClick={() => setIsBlind((v) => !v)}
-              className={[
-                "px-4 py-2 rounded-xl font-semibold border",
-                isBlind
-                  ? "bg-amber-500 text-black border-amber-500"
-                  : "bg-zinc-800 text-zinc-200 border-zinc-700",
-              ].join(" ")}
-            >
-              {isBlind ? "ON" : "OFF"}
-            </button>
-          </div>
-
-          {createdId ? (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 rounded-2xl px-4 py-3 text-sm">
-              Created session: <span className="font-mono">{createdId}</span>
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className="bg-red-500/10 border border-red-500/30 text-red-200 rounded-2xl px-4 py-3 text-sm">
-              {error}
-            </div>
-          ) : null}
-
           <button
-            onClick={createSession}
-            disabled={busy}
-            className={[
-              "w-full rounded-2xl px-5 py-3 font-semibold",
-              busy
-                ? "bg-amber-500/60 text-black cursor-not-allowed"
-                : "bg-amber-500 hover:bg-amber-600 text-black",
-            ].join(" ")}
+            type="button"
+            role="switch"
+            aria-checked={isBlind}
+            onClick={() => setIsBlind((v) => !v)}
+            className="flex w-full items-center gap-4 rounded-2xl border border-line bg-sunken px-4 py-3.5 text-left hover:border-line-strong"
           >
-            {busy ? "Creating…" : "Create Session"}
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <EyeOff className="h-5 w-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">Blind mode</span>
+              <span className="block text-xs text-fg-muted">Bottle names stay hidden until the reveal</span>
+            </span>
+            <span
+              aria-hidden
+              className={cx(
+                "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                isBlind ? "bg-accent" : "bg-line-strong",
+              )}
+            >
+              <span
+                className={cx(
+                  "absolute top-1 h-5 w-5 rounded-full bg-fg shadow transition-transform",
+                  isBlind ? "translate-x-6" : "translate-x-1",
+                )}
+              />
+            </span>
           </button>
 
-          <div className="text-xs text-zinc-500 text-center">
-            After creating, you’ll go to the private host dashboard link.
-          </div>
-        </div>
-      </div>
-    </main>
+          {error ? <Notice tone="danger">{error}</Notice> : null}
+
+          <Button type="submit" variant="primary" size="lg" block disabled={busy}>
+            {createdId ? (
+              "Opening dashboard…"
+            ) : busy ? (
+              "Creating…"
+            ) : (
+              <>
+                <GlassWater className="h-4 w-4" /> Create tasting
+              </>
+            )}
+          </Button>
+        </Card>
+
+        <p className="mt-4 px-2 text-center text-xs text-fg-faint">
+          You&apos;ll land on your private host dashboard next.
+        </p>
+      </form>
+    </PageShell>
   );
 }

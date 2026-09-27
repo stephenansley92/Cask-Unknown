@@ -9,6 +9,12 @@ import {
   WHISKEY_SELECT_COLUMNS,
 } from "@/lib/whiskey/schema";
 import { RateNewForm } from "./rate-new-form";
+import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
+import { buttonStyles } from "@/components/ui/button";
+import { Eyebrow } from "@/components/ui/card";
+import { Wordmark } from "@/components/ui/brand";
+import { PageShell } from "@/components/ui/page";
 
 async function loadWhiskeysForRate(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -66,28 +72,32 @@ export default async function RateNewPage() {
   );
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-4 sm:p-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="bg-zinc-800 border border-zinc-700 rounded-3xl p-5 md:p-6 shadow-sm">
-          <div className="text-sm text-zinc-400">Cask Unknown</div>
-          <h1 className="text-3xl font-extrabold tracking-tight mt-2">
-            Rate New
-          </h1>
-          <p className="text-sm text-zinc-400 mt-3">
-            Pick a whiskey, score it with the default Blind Mode template, and
-            save it to your personal history.
-          </p>
+    <PageShell bottomInset>
+      <header className="flex items-center justify-between">
+        <Link href="/rate" className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Ratings
+        </Link>
+        <Wordmark />
+      </header>
 
-          <div className="mt-6">
-            <RateNewForm
-              userId={user.id}
-              initialWhiskeys={whiskeys}
-              template={templateResult.template}
-              items={templateItems}
-            />
-          </div>
+      {/* No entrance animation here: a transformed ancestor would pin the form's fixed action bar to this div instead of the viewport. */}
+      <div className="mt-6">
+        <Eyebrow>Solo rating</Eyebrow>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Rate a pour</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Pick a whiskey, score it on the same ten categories as a blind tasting, and save it to your
+          history.
+        </p>
+
+        <div className="mt-6">
+          <RateNewForm
+            userId={user.id}
+            initialWhiskeys={whiskeys}
+            template={templateResult.template}
+            items={templateItems}
+          />
         </div>
       </div>
-    </main>
+    </PageShell>
   );
 }

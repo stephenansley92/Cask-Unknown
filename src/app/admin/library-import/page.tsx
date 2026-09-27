@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ChevronLeft, Upload } from "lucide-react";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
 import { importCollectionCsvAction } from "./actions";
 
 const OWNER_EMAIL = "stephen.ansley92@gmail.com";
@@ -34,62 +40,45 @@ export default async function AdminLibraryImportPage({
       : "";
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
-      <div className="mx-auto max-w-3xl">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-sm text-zinc-500">Owner Tools</div>
-              <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-                Import Collection CSV
-              </h1>
-              <p className="mt-2 text-sm text-zinc-500">
-                Imports into the shared whiskey library used by Rate and Blind
-                selection.
-              </p>
-            </div>
+    <PageShell>
+      <header className="flex items-center justify-between">
+        <Link href="/admin/testers" className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Testers
+        </Link>
+        <Wordmark />
+      </header>
 
-            <Link
-              href="/admin/testers"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            >
-              Back to Testers
-            </Link>
-          </div>
+      <div className="mt-6 animate-fade-slide-in">
+        <Eyebrow>Owner tools</Eyebrow>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Import library CSV</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Imports into the shared whiskey library used by Rate Mode and blind pour selection.
+        </p>
 
-          {message ? (
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3 text-sm text-zinc-700">
-              {message}
-            </div>
-          ) : null}
+        {message ? <Notice className="mt-4">{message}</Notice> : null}
 
-          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-            <div className="text-sm font-semibold text-zinc-800">
-              Expected Columns
-            </div>
-            <div className="mt-2 text-xs text-zinc-500">
-              Name, Size, Category, Subcategory, Proof, Rarity, Distillery,
-              MSRP, Secondary, Paid, Status, Notes
-            </div>
+        <Card className="mt-6">
+          <Eyebrow>Expected columns</Eyebrow>
+          <p className="mt-1.5 text-xs text-fg-muted">
+            Name, Size, Category, Subcategory, Proof, Rarity, Distillery, MSRP, Secondary, Paid,
+            Status, Notes
+          </p>
 
-            <form action={importCollectionCsvAction} className="mt-4 space-y-3">
-              <input
-                name="file"
-                type="file"
-                accept=".csv,text/csv"
-                required
-                className="block w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900"
-              />
-              <button
-                type="submit"
-                className="rounded-2xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white hover:bg-zinc-800"
-              >
-                Import CSV
-              </button>
-            </form>
-          </div>
-        </div>
+          <form action={importCollectionCsvAction} className="mt-4 space-y-3">
+            <input
+              name="file"
+              type="file"
+              accept=".csv,text/csv"
+              required
+              aria-label="Library CSV file"
+              className="block w-full rounded-2xl border border-dashed border-line-strong bg-sunken px-4 py-3 text-sm text-fg-muted file:mr-3 file:rounded-xl file:border-0 file:bg-raised file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-fg"
+            />
+            <Button type="submit" variant="primary" block>
+              <Upload className="h-4 w-4" /> Import CSV
+            </Button>
+          </form>
+        </Card>
       </div>
-    </main>
+    </PageShell>
   );
 }

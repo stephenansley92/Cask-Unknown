@@ -3,6 +3,13 @@ import { notFound, redirect } from "next/navigation";
 import { loadPublicRateHistoryRecords } from "@/lib/profile-history/read-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/redirects";
+import { ChevronLeft } from "lucide-react";
+import { formatScore } from "@/components/history/profile-history";
+import { buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
 import DeleteEntryForm from "./delete-entry-form";
 
 type HistoryMode = "blind" | "rate";
@@ -478,13 +485,13 @@ export default async function HistoryDetailPage({
       ].filter(Boolean);
 
       title = publicRating.whiskeyName;
-      subtitle = "Rate Mode";
+      subtitle = "Solo rating";
       detailsLine = [
-        whiskeyMeta.length ? whiskeyMeta.join(" - ") : "",
+        whiskeyMeta.length ? whiskeyMeta.join(" · ") : "",
         `Rated ${formatRatedAt(publicRating.createdAt)}`,
       ]
         .filter(Boolean)
-        .join(" - ");
+        .join(" · ");
       totalScore = Number(publicRating.totalScore ?? 0);
       notes = publicRating.notes;
       categoryItems = BLIND_CATEGORY.map((category) => ({
@@ -535,13 +542,13 @@ export default async function HistoryDetailPage({
       ].filter(Boolean);
 
       title = whiskey.name;
-      subtitle = "Rate Mode";
+      subtitle = "Solo rating";
       detailsLine = [
-        whiskeyMeta.length ? whiskeyMeta.join(" - ") : "",
+        whiskeyMeta.length ? whiskeyMeta.join(" · ") : "",
         `Rated ${formatRatedAt(rating.ratedAt)}`,
       ]
         .filter(Boolean)
-        .join(" - ");
+        .join(" · ");
       totalScore = Number(rating.totalScore ?? 0);
       notes = (rating.notes || "").trim();
       canDelete = ownerView;
@@ -598,105 +605,74 @@ export default async function HistoryDetailPage({
   }
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] p-4 text-zinc-900 sm:p-6">
-      <div className="mx-auto max-w-4xl">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
-          {message ? (
-            <div className="mb-4 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3 text-sm text-zinc-700">
-              {message}
+    <PageShell>
+      <header className="flex items-center justify-between">
+        <Link href={returnTo} className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Back
+        </Link>
+        {canDelete ? (
+          <DeleteEntryForm
+            mode={mode}
+            entryId={entryId}
+            returnTo={returnTo}
+          />
+        ) : (
+          <Wordmark />
+        )}
+      </header>
+
+      {message ? <Notice className="mt-4">{message}</Notice> : null}
+
+      <div className="mt-6 animate-fade-slide-in">
+        <Eyebrow>{subtitle}</Eyebrow>
+        <div className="mt-2 flex items-start justify-between gap-4">
+          <h1 className="min-w-0 font-display text-3xl font-semibold tracking-tight">{title}</h1>
+          <div className="shrink-0 text-right">
+            <div className="font-display text-5xl font-semibold leading-none tabular-nums text-accent">
+              {formatScore(totalScore)}
             </div>
-          ) : null}
-
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href={returnTo}
-                className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 font-semibold text-white hover:bg-zinc-800"
-              >
-                Back
-              </Link>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="text-sm text-zinc-500">Rating Detail</div>
-              {canDelete ? (
-                <DeleteEntryForm
-                  mode={mode}
-                  entryId={entryId}
-                  returnTo={returnTo}
-                />
-              ) : null}
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-3xl border border-zinc-200 bg-[#F8F8F6] px-5 py-5">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <div className="text-sm text-zinc-500">{subtitle}</div>
-                <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-                  {title}
-                </h1>
-                <div className="mt-2 text-sm text-zinc-500">{detailsLine}</div>
-              </div>
-
-              <div className="text-right">
-                <div className="text-xs text-zinc-500">Total score</div>
-                <div className="mt-1 text-4xl font-extrabold tabular-nums">
-                  {totalScore.toFixed(1)}
-                </div>
-              </div>
-            </div>
-
-            {notes ? (
-              <div className="mt-5 rounded-2xl border border-zinc-200 bg-white px-4 py-4">
-                <div className="text-sm font-semibold text-zinc-800">Notes</div>
-                <div className="mt-2 text-sm text-zinc-600">{notes}</div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-6">
-            <div className="text-sm font-semibold text-zinc-800">
-              Category Breakdown
-            </div>
-
-            {categoryItems.length === 0 ? (
-              <div className="mt-4 rounded-3xl border border-zinc-200 px-6 py-8 text-center">
-                <div className="text-lg font-semibold">No category scores found</div>
-                <div className="mt-2 text-sm text-zinc-500">
-                  This rating does not have a readable scoring breakdown.
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {categoryItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-semibold">{item.label}</div>
-                        <div className="mt-1 text-xs text-zinc-500">
-                          {item.itemKey}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-extrabold tabular-nums">
-                          {item.score}
-                        </div>
-                        <div className="text-xs text-zinc-500">
-                          {item.score} / {item.maxPoints}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="mt-1 text-[11px] font-semibold text-fg-faint">of 100</div>
           </div>
         </div>
+        <p className="mt-2 text-sm text-fg-muted">{detailsLine}</p>
+
+        {notes ? (
+          <Card className="mt-6">
+            <Eyebrow>Tasting notes</Eyebrow>
+            <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-fg">{notes}</p>
+          </Card>
+        ) : null}
+
+        <Card padded={false} className="mt-3 p-4">
+          <Eyebrow>Category breakdown</Eyebrow>
+
+          {categoryItems.length === 0 ? (
+            <p className="mt-3 text-sm text-fg-muted">
+              This rating does not have a readable scoring breakdown.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {categoryItems.map((item) => {
+                const pct = item.maxPoints > 0 ? Math.min(100, (item.score / item.maxPoints) * 100) : 0;
+                return (
+                  <li key={item.id}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="text-fg-muted">{item.label}</span>
+                      <span className="tabular-nums">
+                        <span className="font-semibold">{item.score}</span>
+                        <span className="text-xs text-fg-faint">/{item.maxPoints}</span>
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden>
+                      <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
       </div>
-    </main>
+    </PageShell>
   );
 }

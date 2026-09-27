@@ -6,6 +6,12 @@ import {
   loadCanonicalProfileDisplayName,
 } from "@/lib/profile-history/read-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ChevronLeft } from "lucide-react";
+import { buttonStyles } from "@/components/ui/button";
+import { Eyebrow } from "@/components/ui/card";
+import { Wordmark } from "@/components/ui/brand";
+import { PageShell } from "@/components/ui/page";
+import { TabBar } from "@/components/ui/tab-bar";
 import ReadOnlyHistorySection from "./read-only-history";
 
 type PublicProfileRow = {
@@ -51,49 +57,34 @@ export default async function PublicUserProfilePage({
   ]);
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] p-4 text-zinc-900 sm:p-6">
-      <div className="mx-auto max-w-6xl">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-sm text-zinc-500">Public user</div>
-              <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-                {displayName}
-              </h1>
-            </div>
+    <PageShell width="md" bottomInset>
+      <TabBar />
+      <header className="flex items-center justify-between">
+        <Link href="/leaderboard" className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Community
+        </Link>
+        <Wordmark />
+      </header>
 
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Link
-                href="/leaderboard"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                Back to Community
-              </Link>
-              <Link
-                href="/"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                Home
-              </Link>
-            </div>
-          </div>
-
-          <div className="mt-4 text-sm text-zinc-500">
-            Active profile:{" "}
-            <span className="font-semibold text-zinc-900">{displayName}</span>
-          </div>
-          <div className="mt-2 text-xs text-zinc-500">
-            This name comes from the user&apos;s public profile and is used as their
-            blind tasting identity.
-          </div>
-          <ReadOnlyHistorySection
-            userId={id}
-            displayName={displayName}
-            profileName={canonicalProfileName}
-            initialRateHistory={publicRateHistory}
-          />
+      <div className="mt-6 flex items-center gap-4 animate-fade-slide-in">
+        <span
+          aria-hidden
+          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-3xl font-semibold text-accent"
+        >
+          {displayName.charAt(0).toUpperCase()}
+        </span>
+        <div className="min-w-0">
+          <Eyebrow>Public profile</Eyebrow>
+          <h1 className="mt-1 truncate font-display text-3xl font-semibold tracking-tight">{displayName}</h1>
         </div>
       </div>
-    </main>
+
+      <ReadOnlyHistorySection
+        userId={id}
+        displayName={displayName}
+        profileName={canonicalProfileName}
+        initialRateHistory={publicRateHistory}
+      />
+    </PageShell>
   );
 }
