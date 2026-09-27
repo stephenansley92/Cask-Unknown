@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/redirects";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { Wordmark } from "@/components/ui/brand";
+import { FieldLabel, inputStyles } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
 import { signInAction, signOutAction, signUpAction } from "./actions";
 
 type LoginPageProps = {
@@ -24,114 +30,85 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const redirectTo = safeInternalPath(resolvedSearchParams?.redirectTo);
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-white p-6 flex items-center justify-center">
-      <div className="w-full max-w-md bg-zinc-800 border border-zinc-700 rounded-3xl p-6 md:p-8 shadow-lg">
-        <div className="text-sm text-zinc-400">Cask Unknown</div>
-        <h1 className="text-3xl font-extrabold text-amber-400 mt-2">Welcome back</h1>
-        <p className="text-zinc-400 mt-2 text-sm">
-          Sign in to track your pours and see where you stack up.
-        </p>
+    <PageShell center>
+      <div className="w-full animate-fade-slide-in">
+        <div className="text-center">
+          <Link href="/" aria-label="Cask Unknown home">
+            <Wordmark size="lg" />
+          </Link>
+          <p className="mt-3 text-fg-muted">
+            {user ? "You're signed in." : "Sign in to track your pours and see where you stack up."}
+          </p>
+        </div>
 
-        {message ? (
-          <div className="mt-4 rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-200">
-            {message}
-          </div>
-        ) : null}
+        {message ? <Notice className="mt-6">{message}</Notice> : null}
 
         {user ? (
-          <div className="mt-6 space-y-4">
-            <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-4">
-              <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                Signed In
-              </div>
-              <div className="mt-2 font-semibold text-zinc-100">
-                {user.email || "Authenticated user"}
-              </div>
-            </div>
+          <div className="mt-6 space-y-3">
+            <Card>
+              <Eyebrow>Signed in as</Eyebrow>
+              <div className="mt-1.5 truncate font-semibold">{user.email || "Authenticated user"}</div>
+            </Card>
+
+            <Link href="/" className={buttonStyles({ variant: "primary", size: "lg", block: true })}>
+              Back home
+            </Link>
 
             <form action={signOutAction}>
-              <button
-                type="submit"
-                className="w-full rounded-2xl px-5 py-3 font-semibold bg-zinc-100 text-zinc-900 hover:bg-white"
-              >
-                Sign Out
-              </button>
+              <Button type="submit" variant="ghostDanger" size="md" block>
+                Sign out
+              </Button>
             </form>
-
-            <Link
-              href="/"
-              className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-700 px-5 py-3 font-semibold text-zinc-200 hover:bg-zinc-700"
-            >
-              Back Home
-            </Link>
           </div>
         ) : (
-          <form className="mt-6 space-y-4">
-            <input type="hidden" name="redirectTo" value={redirectTo} />
+          <Card className="mt-6">
+            <form className="space-y-4">
+              <input type="hidden" name="redirectTo" value={redirectTo} />
 
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-semibold text-zinc-200 mb-2"
-              >
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                autoComplete="email"
-                className="w-full rounded-2xl bg-zinc-900 border border-zinc-700 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                placeholder="you@example.com"
-              />
-            </div>
+              <div>
+                <FieldLabel htmlFor="email">Email</FieldLabel>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  className={inputStyles()}
+                  placeholder="you@example.com"
+                />
+              </div>
 
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-semibold text-zinc-200 mb-2"
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                autoComplete="current-password"
-                className="w-full rounded-2xl bg-zinc-900 border border-zinc-700 px-4 py-3 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                placeholder="Minimum 6 characters"
-              />
-            </div>
+              <div>
+                <FieldLabel htmlFor="password">Password</FieldLabel>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  className={inputStyles()}
+                  placeholder="Minimum 6 characters"
+                />
+              </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <button
-                type="submit"
-                formAction={signInAction}
-                className="w-full rounded-2xl px-5 py-3 font-semibold bg-amber-500 text-black hover:bg-amber-600"
-              >
-                Sign In
-              </button>
+              <div className="space-y-2 pt-1">
+                <Button type="submit" formAction={signInAction} variant="primary" size="lg" block>
+                  Sign in
+                </Button>
+                <Button type="submit" formAction={signUpAction} variant="secondary" size="lg" block>
+                  Create account
+                </Button>
+              </div>
+            </form>
+          </Card>
+        )}
 
-              <button
-                type="submit"
-                formAction={signUpAction}
-                className="w-full rounded-2xl px-5 py-3 font-semibold border border-zinc-700 text-zinc-100 hover:bg-zinc-700"
-              >
-                Create Account
-              </button>
-            </div>
-
-            <Link
-              href="/"
-              className="inline-flex w-full items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-zinc-400 hover:text-zinc-200"
-            >
-              Back Home
-            </Link>
-          </form>
+        {user ? null : (
+          <Link href="/" className={buttonStyles({ variant: "ghost", size: "md", block: true, className: "mt-3" })}>
+            Back home
+          </Link>
         )}
       </div>
-    </main>
+    </PageShell>
   );
 }

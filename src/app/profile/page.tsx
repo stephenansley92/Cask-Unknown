@@ -15,7 +15,6 @@ import {
 } from "@/lib/whiskey/schema";
 import { getCsvValue, normalizeHeader, parseCsv } from "@/lib/csv";
 import {
-  CATEGORY,
   buildCanonicalProfileHistoryView,
   loadCanonicalBlindHistory,
   loadCanonicalRateHistory,
@@ -23,6 +22,35 @@ import {
   type RateHistoryRow,
   type SortKey,
 } from "@/lib/profile-history/read-only";
+import {
+  ChevronDown,
+  Download,
+  Globe,
+  LogOut,
+  ShieldCheck,
+  Star,
+  Trophy,
+  Upload,
+} from "lucide-react";
+import {
+  CategoryAverages,
+  HistoryEntryBody,
+  HistoryEntryLink,
+  HistoryList,
+  HistorySortSelect,
+  RankedPours,
+  StatTiles,
+} from "@/components/history/profile-history";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { LoadingDots, LoadingScreen, Wordmark } from "@/components/ui/brand";
+import { cx } from "@/components/ui/cx";
+import { FieldLabel, inputStyles } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { StatusPill } from "@/components/ui/status-pill";
+import { TabBar } from "@/components/ui/tab-bar";
+import { Toast, useToast } from "@/components/ui/toast";
 
 type SignupToast = {
   id: string;
@@ -183,6 +211,7 @@ export default function ProfilePage() {
   const [importingCollection, setImportingCollection] = useState(false);
   const [collectionImportMessage, setCollectionImportMessage] = useState("");
   const [collectionImportError, setCollectionImportError] = useState("");
+  const toast = useToast();
 
   useEffect(() => {
     const options = getProfileOptions();
@@ -456,6 +485,7 @@ export default function ProfilePage() {
       }
 
       setSavingPublicProfile(false);
+      toast.show("Public profile saved.");
     } catch (e: unknown) {
       setPublicProfileError(e instanceof Error ? e.message : "Unknown error.");
       setSavingPublicProfile(false);
@@ -894,335 +924,197 @@ export default function ProfilePage() {
   }, [history]);
 
   if (loading || (!profileResolved && !error)) {
-    return (
-      <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
-        <div className="text-zinc-500">Loading profile...</div>
-      </main>
-    );
+    return <LoadingScreen label="Loading profile" />;
   }
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 flex items-center justify-center p-6">
-        <div className="max-w-lg w-full bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm">
-          <div className="text-2xl font-extrabold tracking-tight">Profile Error</div>
-          <p className="text-zinc-600 mt-2">{error}</p>
-          <Link
-            href="/"
-            className="inline-flex items-center justify-center mt-4 rounded-2xl px-4 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800"
-          >
-            Back Home
+      <PageShell center>
+        <div className="w-full animate-fade-slide-in text-center">
+          <Wordmark size="lg" />
+          <Notice tone="danger" title="Your profile didn't load" className="mt-8 text-left">
+            {error}
+          </Notice>
+          <Link href="/" className={buttonStyles({ variant: "secondary", size: "lg", block: true, className: "mt-4" })}>
+            Back home
           </Link>
         </div>
-      </main>
+      </PageShell>
     );
   }
 
-  return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
-      <div className="max-w-6xl mx-auto">
-        {isOwner && signupToasts.length > 0 ? (
-          <div className="mb-4 space-y-3">
-            {signupToasts.map((toast) => (
-              <div
-                key={toast.id}
-                className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                      New Signup
-                    </div>
-                    <div className="mt-1 font-semibold text-emerald-950">
-                      {toast.newUserEmail}
-                    </div>
-                    <div className="mt-1 text-xs text-emerald-700">
-                      {formatDateTime(toast.createdAt)}
-                    </div>
-                  </div>
+  const returnTo = encodeURIComponent("/profile");
+  const ownerQuery = authUserId ? `&owner=${encodeURIComponent(authUserId)}` : "";
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSignupToasts((prev) =>
-                        prev.filter((entry) => entry.id !== toast.id)
-                      )
-                    }
-                    className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
+  return (
+    <PageShell width="md" bottomInset>
+      <TabBar />
+      <Toast message={toast.message} />
+
+      <div className="animate-fade-slide-in">
+        {isOwner && signupToasts.length > 0 ? (
+          <div className="mb-4 space-y-2">
+            {signupToasts.map((signup) => (
+              <Notice
+                key={signup.id}
+                tone="success"
+                title={`New signup: ${signup.newUserEmail}`}
+                onDismiss={() =>
+                  setSignupToasts((prev) => prev.filter((entry) => entry.id !== signup.id))
+                }
+              >
+                {formatDateTime(signup.createdAt)}
+              </Notice>
             ))}
           </div>
         ) : null}
 
-        <div className="bg-white border border-zinc-200 rounded-3xl p-5 md:p-6 shadow-sm">
-          <div className="mt-6 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-            <div>
-              <div className="text-sm text-zinc-500">Cask Unknown</div>
-              <div className="text-3xl font-extrabold tracking-tight mt-2">Your Profile</div>
-              <div className="text-sm text-zinc-500 mt-2">
-                Active profile: <span className="font-semibold text-zinc-900">{displayProfileName}</span>
-              </div>
-              <div className="text-xs text-zinc-500 mt-2">
-                {isOwner
-                  ? "This profile follows the same hard-coded name across all sessions."
-                  : "This name comes from your account profile and is used as your blind tasting identity."}
-              </div>
-            </div>
+        <header className="flex items-center justify-between">
+          <Wordmark />
+          <Link href="/rate/new" className={buttonStyles({ variant: "primary", size: "sm" })}>
+            <Star className="h-4 w-4" /> Rate a pour
+          </Link>
+        </header>
 
-            <div className="w-full md:w-auto flex flex-col gap-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Link
-                  href="/rate/new"
-                  className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800"
-                >
-                  Rate Now
-                </Link>
-                <Link
-                  href="/"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                >
-                  Home
-                </Link>
-              </div>
+        <div className="mt-8 flex items-center gap-4">
+          <span
+            aria-hidden
+            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-3xl font-semibold text-accent"
+          >
+            {displayProfileName.charAt(0).toUpperCase() || "?"}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate font-display text-3xl font-semibold tracking-tight">{displayProfileName}</h1>
+            <p className="mt-0.5 text-sm text-fg-muted">
+              {isOwner ? "Viewing a tasting profile" : "Your tasting identity"}
+            </p>
+          </div>
+        </div>
 
-              {isOwner ? (
-                <div className="w-full md:w-auto">
-                  <label className="text-sm font-semibold text-zinc-800">
-                    Switch profile
-                    <select
-                      value={activeProfile}
-                      onChange={(e) => setActiveProfile(e.target.value)}
-                      className="mt-2 w-full md:w-[220px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    >
-                      {profileOptions.map((profile) => (
-                        <option key={profile} value={profile}>
-                          {profile}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              ) : (
-                <div className="w-full md:w-auto rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
-                  <div className="text-xs text-zinc-500">Display name</div>
-                  <div className="mt-1 font-semibold text-zinc-900">
-                    {displayProfileName}
-                  </div>
-                </div>
-              )}
+        {isOwner ? (
+          <div className="mt-4">
+            <FieldLabel htmlFor="profile-switch">Switch profile</FieldLabel>
+            <div className="relative">
+              <select
+                id="profile-switch"
+                value={activeProfile}
+                onChange={(e) => setActiveProfile(e.target.value)}
+                className={inputStyles({ kind: "select", size: "sm" })}
+              >
+                {profileOptions.map((profile) => (
+                  <option key={profile} value={profile}>
+                    {profile}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint" />
             </div>
           </div>
+        ) : null}
 
-          {!combinedHistory.length ? (
-            <div className="mt-6 rounded-3xl border border-zinc-200 p-6">
-              <div className="text-lg font-semibold">
-                No ratings yet for {displayProfileName}.
-              </div>
-              <div className="mt-2 text-sm text-zinc-500">
-                Rate something or join a tasting to start building history.
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-3">
-                <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
-                  <div className="text-xs text-zinc-500">Overall Avg</div>
-                  <div className="text-2xl font-extrabold tabular-nums">{overallAverage.toFixed(1)}</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
-                  <div className="text-xs text-zinc-500">Rated Pours</div>
-                  <div className="text-2xl font-extrabold tabular-nums">{ratedCount}</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
-                  <div className="text-xs text-zinc-500">Sessions</div>
-                  <div className="text-2xl font-extrabold tabular-nums">{sessionCount}</div>
-                </div>
+        {!combinedHistory.length ? (
+          <Card className="mt-6 text-center">
+            <div className="font-semibold">No ratings yet</div>
+            <p className="mt-1 text-sm text-fg-muted">
+              Rate something or join a tasting to start building your history.
+            </p>
+            <Link href="/rate/new" className={buttonStyles({ variant: "primary", size: "md", className: "mt-4" })}>
+              <Star className="h-4 w-4" /> Rate your first pour
+            </Link>
+          </Card>
+        ) : (
+          <div className="mt-6 space-y-3">
+            <StatTiles overallAverage={overallAverage} ratedCount={ratedCount} sessionCount={sessionCount} />
+
+            <section className="pt-5">
+              <div className="flex items-baseline justify-between">
+                <Eyebrow>Blind tastings</Eyebrow>
+                <span className="text-xs text-fg-faint">
+                  {blindSessionGroups.length} session{blindSessionGroups.length === 1 ? "" : "s"}
+                </span>
               </div>
 
-              <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <div className="text-sm text-zinc-500">Blind Sessions</div>
-                    <div className="mt-1 text-lg font-semibold text-zinc-900">
-                      Sessions you participated in
-                    </div>
-                  </div>
-                  <div className="text-xs text-zinc-500">
-                    {blindSessionGroups.length} session{blindSessionGroups.length === 1 ? "" : "s"}
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  {blindSessionGroups.length ? (
-                    blindSessionGroups.map((group) => {
-                      const revealed = group.status.toLowerCase() === "revealed";
-
-                      return (
-                        <div
-                          key={group.sessionId}
-                          className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4"
-                        >
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                              <div className="font-semibold text-zinc-900">{group.title}</div>
-                              <div className="mt-1 text-xs text-zinc-500">
-                                {group.rows.length} scored pour{group.rows.length === 1 ? "" : "s"} - Last scored{" "}
+              {blindSessionGroups.length ? (
+                <ul className="mt-3 space-y-2">
+                  {blindSessionGroups.map((group) => {
+                    const revealed = group.status.toLowerCase() === "revealed";
+                    return (
+                      <li key={group.sessionId}>
+                        <Card padded={false} className="p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate font-semibold">{group.title}</div>
+                              <div className="mt-0.5 text-xs text-fg-faint">
+                                {group.rows.length} pour{group.rows.length === 1 ? "" : "s"} · Last scored{" "}
                                 {formatDate(group.latestAt)}
                               </div>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
-                                  Avg {group.average.toFixed(1)}
-                                </span>
-                                <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
-                                  {group.status || "unknown"}
-                                </span>
-                              </div>
                             </div>
-
-                            <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                              <Link
-                                href={`/reveal/${group.sessionId}`}
-                                className={[
-                                  "inline-flex items-center justify-center rounded-xl px-4 py-2 text-xs font-semibold",
-                                  revealed
-                                    ? "border border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200"
-                                    : "border border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50",
-                                ].join(" ")}
-                              >
-                                {revealed ? "View Results" : "Reveal Link"}
-                              </Link>
-                              <Link
-                                href={`/join/${group.sessionId}`}
-                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                              >
-                                Reopen Scoring
-                              </Link>
+                            <div className="shrink-0 text-right">
+                              <div className="font-display text-2xl font-semibold tabular-nums">
+                                {group.average.toFixed(1)}
+                              </div>
+                              <div className="text-[11px] text-fg-faint">avg</div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4 text-sm text-zinc-500">
-                      Join a blind tasting while signed in and it will show up here.
-                    </div>
-                  )}
-                </div>
-              </div>
+                          <div className="mt-3 flex items-center gap-2">
+                            <StatusPill status={group.status} />
+                            <span className="flex-1" />
+                            <Link
+                              href={`/join/${group.sessionId}`}
+                              className={buttonStyles({ variant: "ghost", size: "sm" })}
+                            >
+                              Reopen scoring
+                            </Link>
+                            <Link
+                              href={`/reveal/${group.sessionId}`}
+                              className={buttonStyles({ variant: revealed ? "primary" : "secondary", size: "sm" })}
+                            >
+                              <Trophy className="h-3.5 w-3.5" /> {revealed ? "Results" : "Reveal"}
+                            </Link>
+                          </div>
+                        </Card>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <Card className="mt-3 text-sm text-fg-muted">
+                  Join a blind tasting while signed in and it will show up here.
+                </Card>
+              )}
+            </section>
 
-              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-3xl border border-zinc-200 p-5">
-                  <div className="text-sm text-zinc-500">Top 5 Highest Rated</div>
-                  <div className="mt-4 space-y-3">
-                    {topFive.map((row) => (
-                      <div
-                        key={`top-${row.id}`}
-                        className="flex items-center justify-between gap-3 rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-3"
-                      >
-                        <div>
-                          <div className="font-semibold">{row.pourLabel}</div>
-                          <div className="text-xs text-zinc-500">{row.sessionTitle}</div>
-                        </div>
-                        <div className="text-xl font-extrabold tabular-nums">{row.total.toFixed(0)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-3xl border border-zinc-200 p-5">
-                  <div className="text-sm text-zinc-500">Bottom 5 Lowest Rated</div>
-                  <div className="mt-4 space-y-3">
-                    {bottomFive.map((row) => (
-                      <div
-                        key={`bottom-${row.id}`}
-                        className="flex items-center justify-between gap-3 rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-3"
-                      >
-                        <div>
-                          <div className="font-semibold">{row.pourLabel}</div>
-                          <div className="text-xs text-zinc-500">{row.sessionTitle}</div>
-                        </div>
-                        <div className="text-xl font-extrabold tabular-nums">{row.total.toFixed(0)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-                <div className="text-sm text-zinc-500">Personal Averages By Category</div>
-                <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-                  {CATEGORY.map((c) => (
-                    <div key={c.key} className="rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-3">
-                      <div className="text-xs text-zinc-500">{c.label}</div>
-                      <div className="text-2xl font-extrabold tabular-nums">
-                        {categoryAverages[c.key].toFixed(1)}
-                        <span className="text-xs text-zinc-400 font-semibold">/{c.max}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-            </>
-          )}
-
-          <div className="mt-8 rounded-3xl border border-zinc-200 p-5">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <div className="text-sm text-zinc-500">All Ratings</div>
-                <div className="text-3xl font-extrabold tracking-tight mt-2">Complete Rating History</div>
-                <div className="text-xs text-zinc-500 mt-1">
-                  Blind and Rate Mode entries, sorted by the metric you choose.
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <label className="text-sm font-semibold text-zinc-800">
-                  Sort by{" "}
-                  <select
-                    value={sortKey}
-                    onChange={(e) => setSortKey(e.target.value as SortKey)}
-                    className="ml-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="recent">Newest First</option>
-                    <option value="total">Overall Rating</option>
-                    {CATEGORY.map((c) => (
-                      <option key={c.key} value={c.key}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+            <div className="pt-5">
+              <RankedPours top={topFive} bottom={bottomFive} />
             </div>
+            <CategoryAverages averages={categoryAverages} />
+          </div>
+        )}
 
-            {rateError ? (
-              <div className="mt-6 rounded-3xl border border-red-200 bg-red-50 px-6 py-5">
-                <div className="font-semibold text-red-700">Could not load Rate Mode history</div>
-                <div className="mt-1 text-sm text-red-600">{rateError}</div>
-              </div>
-            ) : null}
+        <section className="mt-8">
+          <div className="flex items-center justify-between gap-3">
+            <Eyebrow>All ratings</Eyebrow>
+            <HistorySortSelect value={sortKey} onChange={setSortKey} />
+          </div>
 
-            {rateLoading ? (
-              <div className="mt-4 text-sm text-zinc-500">Loading Rate Mode entries...</div>
-            ) : null}
+          {rateError ? (
+            <Notice tone="danger" title="Could not load Rate Mode history" className="mt-3">
+              {rateError}
+            </Notice>
+          ) : null}
 
-            {groupedHistory.length === 0 && !rateLoading ? (
-              <div className="mt-6 rounded-3xl border border-zinc-200 p-6 text-center">
-                <div className="text-lg font-semibold">No ratings yet</div>
-                <div className="mt-2 text-sm text-zinc-500">
-                  Rate something or join a tasting to start building history.
-                </div>
-              </div>
-            ) : (
-              <div className="mt-6 space-y-3">
+          {rateLoading ? (
+            <div className="mt-6 flex justify-center">
+              <LoadingDots label="Loading Rate Mode entries" />
+            </div>
+          ) : null}
+
+          {groupedHistory.length === 0 && !rateLoading ? (
+            <Card className="mt-3 text-center text-sm text-fg-muted">Nothing rated yet.</Card>
+          ) : groupedHistory.length ? (
+            <div className="mt-3">
+              <HistoryList>
                 {groupedHistory.map((group) => {
-                  const returnTo = encodeURIComponent("/profile");
-                  const ownerQuery = authUserId ? `&owner=${encodeURIComponent(authUserId)}` : "";
                   const isMulti = group.isRate && group.rows.length > 1;
                   const isExpanded = expandedGroup === group.key;
 
@@ -1234,182 +1126,183 @@ export default function ProfilePage() {
                     : group.isRate
                       ? group.avgTotal.toFixed(1)
                       : group.rows[0].total.toFixed(0);
-                  const cardScoreLabel = activeSortCategory ? activeSortCategory.label : "Overall / 100";
+                  const cardScoreLabel = activeSortCategory ? activeSortCategory.label : "of 100";
 
                   // Single entry — link directly to detail page
                   if (!isMulti) {
                     const row = group.rows[0];
                     const detailHref = `/history/${group.isRate ? "rate" : "blind"}/${row.id}?returnTo=${returnTo}${ownerQuery}`;
                     return (
-                      <Link
-                        key={group.key}
-                        href={detailHref}
-                        className="block rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
-                      >
-                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                          <div>
-                            <div className="font-semibold">{group.label}</div>
-                            <div className="text-xs text-zinc-500 mt-1">
-                              {row.sessionTitle} — Rated {group.isRate ? formatDateTime(row.createdAt) : formatDate(row.createdAt)}
-                            </div>
-                            {row.notes ? (
-                              <div className="mt-2 text-sm text-zinc-600">
-                                <span className="font-semibold text-zinc-800">Notes:</span> {row.notes}
-                              </div>
-                            ) : null}
-                          </div>
-                          <div className="text-right shrink-0">
-                            <div className="text-2xl font-extrabold tabular-nums">{cardScoreText}</div>
-                            <div className="text-xs text-zinc-500">{cardScoreLabel}</div>
-                          </div>
-                        </div>
-                      </Link>
+                      <li key={group.key}>
+                        <HistoryEntryLink
+                          href={detailHref}
+                          title={group.label}
+                          meta={`${group.isRate ? "Solo rating" : row.sessionTitle} · ${
+                            group.isRate ? formatDateTime(row.createdAt) : formatDate(row.createdAt)
+                          }`}
+                          notes={row.notes}
+                          score={cardScoreText}
+                          scoreLabel={cardScoreLabel}
+                          rateMode={group.isRate}
+                        />
+                      </li>
                     );
                   }
 
-                  // Multiple rate-mode entries — grouped card with expand/collapse
+                  // Multiple rate-mode entries — grouped row with expand/collapse
                   return (
-                    <div key={group.key} className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] overflow-hidden">
+                    <li key={group.key}>
                       <button
+                        type="button"
                         onClick={() => setExpandedGroup(isExpanded ? null : group.key)}
-                        className="w-full text-left px-4 py-4 hover:bg-zinc-100 focus:outline-none"
+                        aria-expanded={isExpanded}
+                        className="flex w-full items-start gap-3 px-4 py-3.5 text-left hover:bg-raised"
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-semibold">{group.label}</div>
-                            <div className="text-xs text-zinc-500 mt-1">
-                              {group.rows.length} ratings — avg score
-                              <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-bold text-amber-700">
-                                {group.rows.length}×
-                              </span>
-                            </div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <div className="text-2xl font-extrabold tabular-nums">{cardScoreText}</div>
-                            <div className="text-xs text-zinc-500">{cardScoreLabel}</div>
-                            <div className="text-xs text-zinc-400 mt-1">{isExpanded ? "▲ Hide" : "▼ Show all"}</div>
-                          </div>
-                        </div>
+                        <HistoryEntryBody
+                          title={group.label}
+                          meta={`Rated ${group.rows.length}× · average shown`}
+                          score={cardScoreText}
+                          scoreLabel={cardScoreLabel}
+                          rateMode
+                        />
+                        <ChevronDown
+                          className={cx(
+                            "mt-1 h-4 w-4 shrink-0 text-fg-faint transition-transform",
+                            isExpanded && "rotate-180",
+                          )}
+                        />
                       </button>
 
-                      {isExpanded && (
-                        <div className="border-t border-zinc-200 divide-y divide-zinc-200">
-                          {group.rows.map((row, i) => {
-                            const detailHref = `/history/rate/${row.id}?returnTo=${returnTo}${ownerQuery}`;
-                            return (
+                      {isExpanded ? (
+                        <ul className="border-t border-line bg-sunken">
+                          {group.rows.map((row, i) => (
+                            <li key={row.id} className="border-b border-line last:border-b-0">
                               <Link
-                                key={row.id}
-                                href={detailHref}
-                                className="flex items-start justify-between gap-3 px-4 py-3 bg-white hover:bg-zinc-50"
+                                href={`/history/rate/${row.id}?returnTo=${returnTo}${ownerQuery}`}
+                                className="flex items-start justify-between gap-3 py-3 pl-8 pr-4 hover:bg-raised"
                               >
-                                <div className="min-w-0">
-                                  <div className="text-xs text-zinc-500">Rating {i + 1} — {formatDateTime(row.createdAt)}</div>
-                                  {row.notes ? (
-                                    <div className="mt-1 text-sm text-zinc-700">{row.notes}</div>
-                                  ) : (
-                                    <div className="mt-1 text-sm text-zinc-400 italic">No notes</div>
-                                  )}
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <div className="text-xl font-extrabold tabular-nums">{row.total.toFixed(1)}</div>
-                                  <div className="text-xs text-zinc-500">/ 100</div>
-                                </div>
+                                <span className="min-w-0">
+                                  <span className="block text-xs text-fg-faint">
+                                    Rating {i + 1} · {formatDateTime(row.createdAt)}
+                                  </span>
+                                  <span
+                                    className={cx(
+                                      "mt-1 line-clamp-2 block text-sm",
+                                      row.notes ? "text-fg-muted" : "italic text-fg-faint",
+                                    )}
+                                  >
+                                    {row.notes || "No notes"}
+                                  </span>
+                                </span>
+                                <span className="shrink-0 font-display text-xl font-semibold tabular-nums">
+                                  {row.total.toFixed(1)}
+                                </span>
                               </Link>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </li>
                   );
                 })}
+              </HistoryList>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="mt-10 space-y-3">
+          <Eyebrow>Settings</Eyebrow>
+
+          <Card>
+            <div className="flex items-start gap-3">
+              <Globe className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+              <div>
+                <div className="font-semibold">Community visibility</div>
+                <p className="mt-1 text-sm text-fg-muted">
+                  Your profile is private by default. Turning this on lists you on the Community
+                  leaderboard and makes your tasting history — including scores and written notes —
+                  visible to anyone with the link.
+                </p>
               </div>
-            )}
-          </div>
-
-          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-            <div className="text-sm text-zinc-500">Public profile</div>
-            <div className="mt-2 text-lg font-semibold text-zinc-900">
-              Community visibility
-            </div>
-            <div className="mt-2 text-sm text-zinc-500">
-              Your profile is private by default. Turning this on lists you on
-              the Community leaderboard and makes your tasting history —
-              including your scores and written notes — visible to anyone with
-              the link.
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
-              <label className="block">
-                <span className="block text-sm font-semibold text-zinc-800">
-                  Public display name
-                </span>
-                <input
-                  value={publicProfileDisplayName}
-                  onChange={(e) => setPublicProfileDisplayName(e.target.value)}
-                  readOnly={!isOwner}
-                  disabled={!isOwner}
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 disabled:bg-zinc-100 disabled:text-zinc-500"
-                  placeholder="Display name"
+            <div className="mt-4">
+              <FieldLabel htmlFor="public-name">Public display name</FieldLabel>
+              <input
+                id="public-name"
+                value={publicProfileDisplayName}
+                onChange={(e) => setPublicProfileDisplayName(e.target.value)}
+                readOnly={!isOwner}
+                disabled={!isOwner}
+                className={inputStyles({ size: "sm" })}
+                placeholder="Display name"
+              />
+              {!isOwner ? (
+                <p className="mt-1.5 text-xs text-fg-faint">
+                  Display name is locked after setup. Only the admin can change it.
+                </p>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={publicProfileIsPublic}
+              onClick={() => setPublicProfileIsPublic((v) => !v)}
+              className="mt-3 flex w-full items-center justify-between gap-4 rounded-2xl border border-line bg-sunken px-4 py-3 text-left hover:border-line-strong"
+            >
+              <span className="text-sm font-semibold">Show on Community</span>
+              <span
+                aria-hidden
+                className={cx(
+                  "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                  publicProfileIsPublic ? "bg-accent" : "bg-line-strong",
+                )}
+              >
+                <span
+                  className={cx(
+                    "absolute top-1 h-5 w-5 rounded-full bg-fg shadow transition-transform",
+                    publicProfileIsPublic ? "translate-x-6" : "translate-x-1",
+                  )}
                 />
-              </label>
-
-              <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={publicProfileIsPublic}
-                  onChange={(e) => setPublicProfileIsPublic(e.target.checked)}
-                  className="h-4 w-4 accent-zinc-900"
-                />
-                <span className="text-sm font-semibold text-zinc-800">
-                  Show on Community
-                </span>
-              </label>
-            </div>
-
-            {!isOwner ? (
-              <div className="mt-3 text-xs text-zinc-500">
-                Display name is locked after setup. Only the admin can change
-                it.
-              </div>
-            ) : null}
+              </span>
+            </button>
 
             {publicProfileError ? (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <Notice tone="danger" className="mt-3">
                 {publicProfileError}
-              </div>
+              </Notice>
             ) : null}
 
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <button
-                type="button"
+            <div className="mt-4 flex gap-2">
+              <Button
+                variant="primary"
+                className="flex-1"
                 onClick={handleSavePublicProfile}
                 disabled={savingPublicProfile}
-                className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-5 py-3 font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
               >
-                {savingPublicProfile ? "Saving..." : "Save Public Profile"}
-              </button>
-
-              <Link
-                href="/leaderboard"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
+                {savingPublicProfile ? "Saving…" : "Save"}
+              </Button>
+              <Link href="/leaderboard" className={buttonStyles({ variant: "secondary", className: "flex-1" })}>
                 View Community
               </Link>
             </div>
-          </div>
+          </Card>
 
-          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-            <div className="text-sm text-zinc-500">Import Whiskey Collection</div>
-            <div className="mt-2 text-lg font-semibold text-zinc-900">
-              Upload your collection CSV
-            </div>
-            <div className="mt-2 text-sm text-zinc-500">
-              Use the template, then upload your file. Empty rows are ignored
-              and duplicate entries are skipped or safely enriched.
-            </div>
-            <div className="mt-2 text-xs text-zinc-500">
-              Expected columns: Name, Size, Category, Subcategory, Proof,
-              Rarity, Distillery, MSRP, Secondary, Paid, Status, Notes
+          <Card>
+            <div className="flex items-start gap-3">
+              <Upload className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+              <div>
+                <div className="font-semibold">Import your collection</div>
+                <p className="mt-1 text-sm text-fg-muted">
+                  Fill in the CSV template, then upload it. Empty rows are ignored and duplicates are
+                  skipped or safely enriched.
+                </p>
+                <p className="mt-1.5 text-xs text-fg-faint">
+                  Columns: Name, Size, Category, Subcategory, Proof, Rarity, Distillery, MSRP,
+                  Secondary, Paid, Status, Notes
+                </p>
+              </div>
             </div>
 
             <form onSubmit={handleImportCollectionCsv} className="mt-4 space-y-3">
@@ -1417,69 +1310,62 @@ export default function ProfilePage() {
                 name="file"
                 type="file"
                 accept=".csv,text/csv"
+                aria-label="Collection CSV file"
                 onChange={(e) => setCollectionFile(e.target.files?.[0] || null)}
-                className="block w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900"
+                className="block w-full rounded-2xl border border-dashed border-line-strong bg-sunken px-4 py-3 text-sm text-fg-muted file:mr-3 file:rounded-xl file:border-0 file:bg-raised file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-fg"
               />
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <button
-                  type="submit"
-                  disabled={importingCollection}
-                  className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-                >
-                  {importingCollection ? "Uploading..." : "Upload CSV"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleDownloadCollectionTemplate}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                >
-                  Download Template
-                </button>
+              <div className="flex gap-2">
+                <Button type="submit" variant="primary" className="flex-1" disabled={importingCollection}>
+                  {importingCollection ? "Uploading…" : "Upload CSV"}
+                </Button>
+                <Button variant="secondary" className="flex-1" onClick={handleDownloadCollectionTemplate}>
+                  <Download className="h-4 w-4" /> Template
+                </Button>
               </div>
             </form>
 
             {collectionImportError ? (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <Notice tone="danger" className="mt-3">
                 {collectionImportError}
-              </div>
+              </Notice>
             ) : null}
 
             {collectionImportMessage ? (
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3 text-sm text-zinc-700">
+              <Notice tone="success" className="mt-3">
                 {collectionImportMessage}
-              </div>
+              </Notice>
             ) : null}
-          </div>
+          </Card>
 
-          <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-            <div className="text-sm text-zinc-500">Account</div>
-            <div className="mt-2 font-semibold text-zinc-900">
-              {userEmail || "Signed-in user"}
-            </div>
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={async () => {
-                  setSigningOut(true);
-                  const authClient = createSupabaseBrowserClient();
-                  await authClient.auth.signOut();
-                  // Full page load on purpose: drops the signed-out session's client state and cached pages.
-                  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-                  window.location.href = "/login?message=Signed%20out.";
-                }}
-                disabled={signingOut}
-                className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
-              >
-                {signingOut ? "Signing Out..." : "Sign Out"}
-              </button>
-            </div>
-          </div>
+          <Card>
+            <Eyebrow>Signed in as</Eyebrow>
+            <div className="mt-1.5 truncate font-semibold">{userEmail || "Signed-in user"}</div>
+            <Button
+              variant="ghostDanger"
+              block
+              className="mt-3"
+              onClick={async () => {
+                setSigningOut(true);
+                const authClient = createSupabaseBrowserClient();
+                await authClient.auth.signOut();
+                // Full page load on purpose: drops the signed-out session's client state and cached pages.
+                // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                window.location.href = "/login?message=Signed%20out.";
+              }}
+              disabled={signingOut}
+            >
+              <LogOut className="h-4 w-4" /> {signingOut ? "Signing out…" : "Sign out"}
+            </Button>
+          </Card>
 
-
-        </div>
+          {isOwner ? (
+            <Link href="/admin/testers" className={buttonStyles({ variant: "ghost", size: "sm" })}>
+              <ShieldCheck className="h-4 w-4" /> Admin
+            </Link>
+          ) : null}
+        </section>
       </div>
-    </main>
+    </PageShell>
   );
 }
