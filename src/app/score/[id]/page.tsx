@@ -14,7 +14,9 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { ConfirmModal } from "@/components/confirm-modal";
-import { Check, ChevronLeft, ChevronRight, GlassWater, Info, Lock, Trophy } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, GlassWater, Info, Lock, Target, Trophy } from "lucide-react";
+import { FlavorTagPicker } from "@/components/flavor-tags";
+import { FieldLabel, inputStyles } from "@/components/ui/field";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { LoadingScreen, Wordmark } from "@/components/ui/brand";
@@ -30,7 +32,15 @@ import {
   type ScoreDraft,
 } from "@/lib/scoring/categories";
 import { createScoreAutosave, type ScoreAutosave } from "@/lib/scoring/autosave";
-import { getParticipantSession, saveParticipantScore } from "@/lib/session-api";
+import {
+  getParticipantGuessing,
+  getParticipantSession,
+  guessingEnabled,
+  saveParticipantGuess,
+  saveParticipantScore,
+  type ParticipantGuess,
+  type ParticipantGuessing,
+} from "@/lib/session-api";
 import {
   errorMessage,
   logEvent,
@@ -78,6 +88,7 @@ type ScoreRow = {
   total: number;
 
   notes?: string | null;
+  flavor_tags?: string[] | null;
   core_locked?: boolean | null;
   core_locked_at?: string | null;
 
@@ -99,6 +110,25 @@ type SliderTouchState = {
 };
 
 type LockExtra = { lockCore?: boolean; lockFinal?: boolean };
+
+// Guess inputs are kept as strings so half-typed numbers survive re-renders.
+type GuessDraft = { bottle_guess: string; proof_guess: string; price_guess: string };
+const EMPTY_GUESS: GuessDraft = { bottle_guess: "", proof_guess: "", price_guess: "" };
+
+function guessToDraft(g: ParticipantGuess): GuessDraft {
+  return {
+    bottle_guess: g.bottle_guess ?? "",
+    proof_guess: g.proof_guess === null || g.proof_guess === undefined ? "" : String(g.proof_guess),
+    price_guess: g.price_guess === null || g.price_guess === undefined ? "" : String(g.price_guess),
+  };
+}
+
+function guessNumber(value: string, max: number) {
+  if (!value.trim()) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(max, n));
+}
 type ScoreCategoryKey = (typeof CATEGORY_SPEC)[number]["key"];
 function storageKey(sessionId: string) {
   return `cask_unknown_participant_${sessionId}`;
@@ -141,6 +171,17 @@ export default function ScorePage() {
   const coreLockedByPourRef = useRef<Record<string, boolean>>({});
   const finalLockedByPourRef = useRef<Record<string, boolean>>({});
   const participantAccessTokenRef = useRef("");
+  const participantIdRef = useRef("");
+
+  // Guessing game and flavor tags need the reveal-night migration; a failed
+  // guessing lookup means it isn't applied yet, so both stay hidden.
+  const [guessing, setGuessing] = useState<ParticipantGuessing | null>(null);
+  const [guessByPour, setGuessByPour] = useState<Record<string, GuessDraft>>({});
+  const guessDraftsRef = useRef<Record<string, GuessDraft>>({});
+  const guessTimers = useRef<Record<string, number>>({});
+  const loadGuessingRef = useRef<() => Promise<void>>(async () => {});
+  const saveGuessRef = useRef<(pourId: string) => Promise<void>>(async () => {});
+  const revealNightReady = guessing !== null;
 
   // The autosave engine calls through this ref so a debounced save always
   // runs the latest render's save implementation instead of a stale closure.
@@ -241,7 +282,8 @@ export default function ScorePage() {
         d.drinkability !== 0 ||
         d.packaging !== 0 ||
         d.value !== 0 ||
-        (d.notes?.trim().length ?? 0) > 0;
+        (d.notes?.trim().length ?? 0) > 0 ||
+        (d.flavor_tags?.length ?? 0) > 0;
       return count + (anyTouched ? 1 : 0);
     }, 0);
   }, [pours, draftByPour]);
@@ -286,6 +328,7 @@ export default function ScorePage() {
       packaging: row.packaging ?? 0,
       value: row.value ?? 0,
       notes: (row.notes ?? "") as string,
+      flavor_tags: Array.isArray(row.flavor_tags) ? row.flavor_tags : [],
     });
     setCoreLockedByPour((prev) => ({ ...prev, [row.pour_id]: !!row.core_locked }));
     setFinalLockedByPour((prev) => ({ ...prev, [row.pour_id]: !!row.final_locked }));
@@ -331,6 +374,7 @@ export default function ScorePage() {
         packaging: d.packaging,
         value: d.value,
         notes: d.notes ?? "",
+        flavor_tags: d.flavor_tags ?? [],
       };
 
     showHint(extra?.lockFinal ? "Locking final…" : extra?.lockCore ? "Locking…" : "Saving…");
@@ -379,6 +423,65 @@ export default function ScorePage() {
     }
     };
   });
+
+  useEffect(() => {
+    loadGuessingRef.current = async () => {
+      const participantId = participantIdRef.current;
+      if (!sessionId || !participantId || !participantAccessTokenRef.current) return;
+      const { data, error: gErr } = await getParticipantGuessing(
+        supabase,
+        sessionId,
+        participantId,
+        participantAccessTokenRef.current,
+      );
+      if (gErr || !data) {
+        setGuessing(null);
+        return;
+      }
+      setGuessing(data);
+      // Server copies fill in pours this phone hasn't touched yet.
+      const merged = { ...guessDraftsRef.current };
+      for (const g of data.guesses) {
+        if (!merged[g.pour_id]) merged[g.pour_id] = guessToDraft(g);
+      }
+      guessDraftsRef.current = merged;
+      setGuessByPour(merged);
+    };
+
+    saveGuessRef.current = async (pourId) => {
+      const draft = guessDraftsRef.current[pourId];
+      if (!sessionId || !participant || !draft) return;
+      const { error: gErr } = await saveParticipantGuess(supabase, {
+        sessionId,
+        pourId,
+        participantId: participant.id,
+        accessToken: participantAccessTokenRef.current,
+        guess: {
+          bottle_guess: draft.bottle_guess || null,
+          proof_guess: guessNumber(draft.proof_guess, 200),
+          price_guess: guessNumber(draft.price_guess, 100000),
+        },
+      });
+      if (gErr) {
+        logEvent("warn", "score.guess_save_failed", { sessionId, pourId, message: gErr.message });
+        showHint("Guess didn't save ✗");
+        return;
+      }
+      showHint("Guess saved ✓");
+    };
+  });
+
+  // Send any guess still waiting on its debounce when leaving the page.
+  useEffect(
+    () => () => {
+      for (const [pourId, timer] of Object.entries(guessTimers.current)) {
+        if (!timer) continue;
+        window.clearTimeout(timer);
+        void saveGuessRef.current(pourId);
+      }
+    },
+    [],
+  );
 
   const upsertPour = (pourId: string, extra?: LockExtra) => getAutosave().saveNow(pourId, extra);
 
@@ -436,6 +539,8 @@ export default function ScorePage() {
         setSession(snapshot.session as SessionRow);
         setPours(poursList);
         setParticipant(participantRow);
+        participantIdRef.current = participantRow.id;
+        void loadGuessingRef.current();
         const rowByPour = new Map(snapshot.scores.map((row) => [row.pour_id, row]));
         poursList.forEach((pour) => {
           const row = rowByPour.get(pour.id);
@@ -530,6 +635,8 @@ export default function ScorePage() {
         (payload) => {
           const newStatus = String(payload.new?.status || "");
           setSession((prev) => (prev ? { ...prev, status: newStatus } : prev));
+          // The host may have switched guessing on or off.
+          void loadGuessingRef.current();
         }
       )
       .subscribe();
@@ -712,6 +819,26 @@ export default function ScorePage() {
     if (!activePourId) return;
     setDraftForPour(activePourId, { notes: text });
     scheduleSave(activePourId);
+  };
+
+  const setTags = (tags: string[]) => {
+    if (!activePourId || activeFinalLocked) return;
+    setDraftForPour(activePourId, { flavor_tags: tags });
+    scheduleSave(activePourId);
+  };
+
+  const updateGuess = (pourId: string, patch: Partial<GuessDraft>, immediate = false) => {
+    const next = { ...EMPTY_GUESS, ...guessDraftsRef.current[pourId], ...patch };
+    guessDraftsRef.current = { ...guessDraftsRef.current, [pourId]: next };
+    setGuessByPour(guessDraftsRef.current);
+    window.clearTimeout(guessTimers.current[pourId]);
+    guessTimers.current[pourId] = window.setTimeout(
+      () => {
+        delete guessTimers.current[pourId];
+        void saveGuessRef.current(pourId);
+      },
+      immediate ? 0 : 700,
+    );
   };
 
   const goNextPour = async () => {
@@ -1116,6 +1243,16 @@ export default function ScorePage() {
             <Eyebrow>Tasting notes</Eyebrow>
             <span className="text-xs text-fg-faint">Optional · saves as you type</span>
           </label>
+          {revealNightReady ? (
+            <div className="mb-3 rounded-3xl border border-line bg-surface p-4">
+              <FlavorTagPicker
+                key={activePourId ?? "none"}
+                value={activeDraft.flavor_tags}
+                onChange={setTags}
+                disabled={activeFinalLocked}
+              />
+            </div>
+          ) : null}
           <textarea
             id="pour-notes"
             ref={notesRef}
@@ -1125,6 +1262,97 @@ export default function ScorePage() {
             className="min-h-[96px] w-full rounded-3xl border border-line bg-surface px-4 py-3 text-fg placeholder:text-fg-faint focus:border-accent focus:outline-none"
           />
         </section>
+
+        {guessing && guessingEnabled(guessing.settings) && activePour ? (
+          <section className="mt-6">
+            <div className="mb-2 flex items-center justify-between px-1">
+              <Eyebrow>Your guess</Eyebrow>
+              <span className="flex items-center gap-1 text-xs text-fg-faint">
+                <Target className="h-3 w-3" /> {isRevealed ? "Guessing closed" : "Scored at the reveal"}
+              </span>
+            </div>
+            <Card className="space-y-4">
+              {guessing.settings.bottles && guessing.candidates.length ? (
+                <div>
+                  <FieldLabel htmlFor="guess-bottle">Which bottle is Pour {activePour.code}?</FieldLabel>
+                  <div className="relative">
+                    <select
+                      id="guess-bottle"
+                      value={guessByPour[activePour.id]?.bottle_guess ?? ""}
+                      onChange={(e) => updateGuess(activePour.id, { bottle_guess: e.target.value }, true)}
+                      disabled={isRevealed}
+                      className={inputStyles({ kind: "select" })}
+                    >
+                      <option value="">Pick a bottle…</option>
+                      {guessing.candidates.map((name) => {
+                        const usedOn = pours.find(
+                          (p) => p.id !== activePour.id && guessByPour[p.id]?.bottle_guess === name,
+                        );
+                        return (
+                          <option key={name} value={name}>
+                            {usedOn ? `${name} (your pick for ${usedOn.code})` : name}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint" />
+                  </div>
+                </div>
+              ) : null}
+
+              {guessing.settings.proof || guessing.settings.price ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {guessing.settings.proof ? (
+                    <div>
+                      <FieldLabel htmlFor="guess-proof">Proof</FieldLabel>
+                      <input
+                        id="guess-proof"
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        max={200}
+                        step="0.1"
+                        placeholder="e.g. 100"
+                        value={guessByPour[activePour.id]?.proof_guess ?? ""}
+                        onChange={(e) => updateGuess(activePour.id, { proof_guess: e.target.value })}
+                        disabled={isRevealed}
+                        className={inputStyles()}
+                      />
+                    </div>
+                  ) : null}
+                  {guessing.settings.price ? (
+                    <div>
+                      <FieldLabel htmlFor="guess-price">Retail price ($)</FieldLabel>
+                      <input
+                        id="guess-price"
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="1"
+                        placeholder="e.g. 60"
+                        value={guessByPour[activePour.id]?.price_guess ?? ""}
+                        onChange={(e) => updateGuess(activePour.id, { price_guess: e.target.value })}
+                        disabled={isRevealed}
+                        className={inputStyles()}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <p className="text-xs text-fg-faint">
+                {[
+                  guessing.settings.bottles ? "3 points for the right bottle" : null,
+                  guessing.settings.proof ? "up to 2 for proof" : null,
+                  guessing.settings.price ? "up to 2 for price" : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+                . Best guesser is crowned at the reveal.
+              </p>
+            </Card>
+          </section>
+        ) : null}
 
         <div className="mt-6 flex justify-center gap-2">
           {hostDashboardUrl ? (

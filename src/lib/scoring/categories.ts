@@ -107,6 +107,7 @@ export type ScoreDraft = {
   packaging: number;
   value: number;
   notes: string;
+  flavor_tags: string[];
 };
 
 export function makeEmptyDraft(): ScoreDraft {
@@ -122,6 +123,7 @@ export function makeEmptyDraft(): ScoreDraft {
     packaging: 0,
     value: 0,
     notes: "",
+    flavor_tags: [],
   };
 }
 

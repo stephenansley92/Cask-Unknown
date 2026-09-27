@@ -10,10 +10,10 @@ import { createHostedSession } from "@/lib/session-api";
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { Wordmark } from "@/components/ui/brand";
-import { cx } from "@/components/ui/cx";
 import { FieldLabel, inputStyles } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { PageShell } from "@/components/ui/page";
+import { SwitchRow } from "@/components/ui/switch";
 
 function defaultTitle() {
   const d = new Date();
@@ -118,35 +118,13 @@ export default function CreatePage() {
             />
           </div>
 
-          <button
-            type="button"
-            role="switch"
-            aria-checked={isBlind}
-            onClick={() => setIsBlind((v) => !v)}
-            className="flex w-full items-center gap-4 rounded-2xl border border-line bg-sunken px-4 py-3.5 text-left hover:border-line-strong"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <EyeOff className="h-5 w-5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block font-semibold">Blind mode</span>
-              <span className="block text-xs text-fg-muted">Bottle names stay hidden until the reveal</span>
-            </span>
-            <span
-              aria-hidden
-              className={cx(
-                "relative h-7 w-12 shrink-0 rounded-full transition-colors",
-                isBlind ? "bg-accent" : "bg-line-strong",
-              )}
-            >
-              <span
-                className={cx(
-                  "absolute top-1 h-5 w-5 rounded-full bg-fg shadow transition-transform",
-                  isBlind ? "translate-x-6" : "translate-x-1",
-                )}
-              />
-            </span>
-          </button>
+          <SwitchRow
+            checked={isBlind}
+            onChange={setIsBlind}
+            icon={<EyeOff className="h-5 w-5" />}
+            label="Blind mode"
+            description="Bottle names stay hidden until the reveal"
+          />
 
           {error ? <Notice tone="danger">{error}</Notice> : null}
 

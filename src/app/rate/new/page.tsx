@@ -51,20 +51,26 @@ async function loadWhiskeysForRate(
   return [];
 }
 
-export default async function RateNewPage() {
+type RateNewPageProps = { searchParams?: Promise<{ whiskey?: string }> };
+
+export default async function RateNewPage({ searchParams }: RateNewPageProps) {
+  const requestedWhiskeyId = (await searchParams)?.whiskey ?? "";
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login?redirectTo=%2Frate%2Fnew");
+    const back = requestedWhiskeyId ? `/rate/new?whiskey=${encodeURIComponent(requestedWhiskeyId)}` : "/rate/new";
+    redirect(`/login?redirectTo=${encodeURIComponent(back)}`);
   }
 
-  const [whiskeys, templateResult] =
+  const [whiskeys, templateResult, flavorTagProbe] =
     await Promise.all([
       loadWhiskeysForRate(supabase),
       getDefaultRateTemplateWithItems(supabase, user.id),
+      // Errors until the reveal-night migration adds the column.
+      supabase.from("ratings").select("flavor_tags").limit(0),
     ]);
 
   const templateItems = [...templateResult.items].sort(
@@ -95,6 +101,8 @@ export default async function RateNewPage() {
             initialWhiskeys={whiskeys}
             template={templateResult.template}
             items={templateItems}
+            flavorTagsEnabled={!flavorTagProbe.error}
+            initialWhiskeyId={requestedWhiskeyId}
           />
         </div>
       </div>

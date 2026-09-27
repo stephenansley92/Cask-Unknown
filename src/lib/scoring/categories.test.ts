@@ -40,7 +40,7 @@ describe("computeTotal", () => {
     expect(computeTotal(makeEmptyDraft())).toBe(0);
   });
 
-  it("sums every category and ignores notes", () => {
+  it("sums every category and ignores notes and tags", () => {
     const draft: ScoreDraft = {
       nose: 8,
       flavor: 17,
@@ -53,6 +53,7 @@ describe("computeTotal", () => {
       packaging: 4,
       value: 3,
       notes: "irrelevant",
+      flavor_tags: ["oak"],
     };
     expect(computeTotal(draft)).toBe(76);
   });

@@ -134,6 +134,19 @@ grant select (
 ) on public.scores to anon, authenticated;
 grant delete on public.scores to authenticated;
 
+-- Added by 202609270001_reveal_night.sql; keep it readable if that
+-- migration was applied first.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'scores' and column_name = 'flavor_tags'
+  ) then
+    grant select (flavor_tags) on public.scores to anon, authenticated;
+  end if;
+end
+$$;
+
 revoke all on function public.enforce_participant_user_id_owner() from anon, authenticated;
 revoke all on function public.scores_compute_total() from anon, authenticated;
 

@@ -32,6 +32,7 @@ import { PageShell } from "@/components/ui/page";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Toast, useToast } from "@/components/ui/toast";
 import { cx } from "@/components/ui/cx";
+import { GuessingCard } from "./guessing-card";
 
 type SessionRow = {
   id: string;
@@ -439,7 +440,7 @@ export default function HostPage() {
         </Notice>
       ) : null}
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <Eyebrow>Invite tasters</Eyebrow>
           <div className="mt-4 flex items-center gap-4">
@@ -549,6 +550,16 @@ export default function HostPage() {
         </div>
       </Card>
 
+      {sessionId ? (
+        <GuessingCard
+          sessionId={sessionId}
+          hostKey={hostKey}
+          isBlind={session.is_blind}
+          isRevealed={isRevealed}
+          onSaved={toast.show}
+        />
+      ) : null}
+
       <Card className="mt-4">
         <Eyebrow>Run the reveal</Eyebrow>
 
@@ -621,15 +632,21 @@ export default function HostPage() {
         </ol>
 
         <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
-          <Button variant="secondary" size="sm" onClick={() => copy(revealUrl, "Reveal link")}>
-            <Tv className="h-4 w-4" /> Copy link for the TV
+          <Link
+            href={`/host/${sessionId}/tv?key=${encodeURIComponent(hostKey)}`}
+            className={buttonStyles({ variant: "secondary", size: "sm" })}
+          >
+            <Tv className="h-4 w-4" /> TV mode
+          </Link>
+          <Button variant="ghost" size="sm" onClick={() => copy(revealUrl, "Reveal link")}>
+            <Copy className="h-4 w-4" /> Copy reveal link
           </Button>
           <Button variant="ghost" size="sm" onClick={unlockAllScores} disabled={busy || isRevealed}>
             <Unlock className="h-4 w-4" /> Unlock every score
           </Button>
         </div>
         <p className="mt-2 text-xs text-fg-faint">
-          Open the reveal link on a TV or tablet. It waits quietly until you start the big reveal.
+          Put TV mode on a TV or tablet: it shows the join code and everyone&apos;s progress, then switches to the reveal when you start it.
         </p>
       </Card>
 

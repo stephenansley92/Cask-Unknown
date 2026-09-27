@@ -31,12 +31,17 @@ import { Card, Eyebrow } from "@/components/ui/card";
 import { cx } from "@/components/ui/cx";
 import { inputStyles } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { FlavorTagPicker } from "@/components/flavor-tags";
 
 type RateNewFormProps = {
   userId: string;
   template: RateTemplate;
   items: RateTemplateItem[];
   initialWhiskeys: WhiskeyOption[];
+  /** False until the reveal-night migration adds ratings.flavor_tags. */
+  flavorTagsEnabled?: boolean;
+  /** Preselects this bottle (e.g. "Rate this bottle" from a bottle page). */
+  initialWhiskeyId?: string;
 };
 
 type SliderTouchState = {
@@ -122,17 +127,21 @@ export function RateNewForm({
   template,
   items,
   initialWhiskeys,
+  flavorTagsEnabled = false,
+  initialWhiskeyId = "",
 }: RateNewFormProps) {
+  const preselected = initialWhiskeys.some((w) => w.id === initialWhiskeyId) ? initialWhiskeyId : "";
   const router = useRouter();
   const [whiskeys, setWhiskeys] = useState(initialWhiskeys);
-  const [selectedWhiskeyId, setSelectedWhiskeyId] = useState("");
+  const [selectedWhiskeyId, setSelectedWhiskeyId] = useState(preselected);
   const [search, setSearch] = useState("");
-  const [showSearchResults, setShowSearchResults] = useState(true);
+  const [showSearchResults, setShowSearchResults] = useState(!preselected);
   const [isCreateWhiskeyOpen, setIsCreateWhiskeyOpen] = useState(false);
   const [newWhiskey, setNewWhiskey] = useState<WhiskeyFormValues>(
     EMPTY_WHISKEY_FORM_VALUES
   );
   const [notes, setNotes] = useState("");
+  const [flavorTags, setFlavorTags] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [creatingWhiskey, setCreatingWhiskey] = useState(false);
   const [savingRating, setSavingRating] = useState(false);
@@ -475,7 +484,7 @@ export function RateNewForm({
       notes: notes.trim() || null,
     };
 
-    const insertAttempts = [
+    const withoutTags = [
       {
         ...basePayload,
         scores_json: scoresJson,
@@ -485,6 +494,12 @@ export function RateNewForm({
         scores: scoresJson,
       },
     ];
+    // Tags ride along when there are any; the tagless attempts stay as a
+    // fallback so a rating still saves if the column is missing.
+    const insertAttempts =
+      flavorTagsEnabled && flavorTags.length
+        ? [...withoutTags.map((payload) => ({ ...payload, flavor_tags: flavorTags })), ...withoutTags]
+        : withoutTags;
 
     let lastError = "";
     let saved = false;
@@ -815,6 +830,11 @@ export function RateNewForm({
         <label htmlFor="rate-notes">
           <Eyebrow>3 · Notes</Eyebrow>
         </label>
+        {flavorTagsEnabled ? (
+          <div className="mt-3">
+            <FlavorTagPicker value={flavorTags} onChange={setFlavorTags} />
+          </div>
+        ) : null}
         <textarea
           id="rate-notes"
           ref={notesRef}
