@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ChevronLeft, Upload, UserPlus } from "lucide-react";
+import { Button, buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { cx } from "@/components/ui/cx";
+import { inputStyles } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
 import {
   addTesterByEmailAction,
   saveTesterDisplayNameAction,
@@ -116,131 +123,112 @@ export default async function AdminTestersPage({
       : "";
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
-      <div className="mx-auto max-w-4xl">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-sm text-zinc-500">Owner Tools</div>
-              <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-                Testers
-              </h1>
-              <p className="mt-2 text-sm text-zinc-500">
-                Manage tester display names for signed-up accounts.
-              </p>
-            </div>
+    <PageShell width="md">
+      <header className="flex items-center justify-between">
+        <Link href="/profile" className={buttonStyles({ variant: "ghost", size: "sm", className: "-ml-3" })}>
+          <ChevronLeft className="h-4 w-4" /> Profile
+        </Link>
+        <Link href="/admin/library-import" className={buttonStyles({ variant: "secondary", size: "sm" })}>
+          <Upload className="h-4 w-4" /> Import library
+        </Link>
+      </header>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                href="/admin/library-import"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                Import Collection CSV
-              </Link>
-              <Link
-                href="/profile"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                Back to Profile
-              </Link>
-            </div>
-          </div>
+      <div className="mt-6 animate-fade-slide-in">
+        <Eyebrow>Owner tools</Eyebrow>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Testers</h1>
+        <p className="mt-1 text-sm text-fg-muted">Manage display names for signed-up accounts.</p>
 
-          {message ? (
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-3 text-sm text-zinc-700">
-              {message}
-            </div>
-          ) : null}
+        {message ? <Notice className="mt-4">{message}</Notice> : null}
 
-          {!signupEventsError ? (
-            <div className="mt-6 rounded-3xl border border-zinc-200 p-5">
-              <div className="text-sm font-semibold text-zinc-800">
-                Add Missing Profile By Email
-              </div>
-              <p className="mt-1 text-xs text-zinc-500">
-                Uses signup events to match the email to a signed-up user id.
-              </p>
+        {!signupEventsError ? (
+          <Card className="mt-6">
+            <div className="font-semibold">Add a missing profile</div>
+            <p className="mt-0.5 text-xs text-fg-faint">
+              Matches the email to a signed-up user id through signup events.
+            </p>
 
-              <form action={addTesterByEmailAction} className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
-                <input
-                  name="email"
-                  type="email"
-                  required
-                  placeholder="tester@example.com"
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900"
-                />
-                <input
-                  name="displayName"
-                  type="text"
-                  required
-                  placeholder="Display name"
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900"
-                />
-                <button
-                  type="submit"
-                  className="rounded-2xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white hover:bg-zinc-800"
-                >
-                  Add
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div className="mt-6 rounded-3xl border border-zinc-200 bg-[#F8F8F6] px-5 py-4 text-sm text-zinc-500">
-              `signup_events` is not available, so only existing user profiles can be edited.
-            </div>
-          )}
+            <form action={addTesterByEmailAction} className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <input
+                name="email"
+                type="email"
+                required
+                aria-label="Tester email"
+                placeholder="tester@example.com"
+                className={inputStyles({ size: "sm" })}
+              />
+              <input
+                name="displayName"
+                type="text"
+                required
+                aria-label="Display name"
+                placeholder="Display name"
+                className={inputStyles({ size: "sm" })}
+              />
+              <Button type="submit" variant="primary">
+                <UserPlus className="h-4 w-4" /> Add
+              </Button>
+            </form>
+          </Card>
+        ) : (
+          <Notice className="mt-6">
+            <code>signup_events</code> is not available, so only existing user profiles can be edited.
+          </Notice>
+        )}
 
-          <div className="mt-6 space-y-3">
-            {rows.length === 0 ? (
-              <div className="rounded-3xl border border-zinc-200 p-6 text-center">
-                <div className="text-lg font-semibold">No testers found</div>
-                <div className="mt-2 text-sm text-zinc-500">
-                  Signed-up users will appear here once they have an event or a profile row.
-                </div>
-              </div>
-            ) : (
-              rows.map((row) => (
-                <div
-                  key={row.userId}
-                  className="rounded-2xl border border-zinc-200 bg-[#F8F8F6] px-4 py-4"
-                >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="font-semibold">{row.email}</div>
-                      <div className="mt-1 text-xs text-zinc-500">
-                        {row.hasProfile ? "Profile exists" : "Missing profile"} •{" "}
-                        {formatDateTime(row.createdAt)}
-                      </div>
-                    </div>
-
-                    <form
-                      action={saveTesterDisplayNameAction}
-                      className="flex w-full flex-col gap-3 md:w-auto md:min-w-[360px]"
-                    >
-                      <input type="hidden" name="userId" value={row.userId} />
-                      <input type="hidden" name="email" value={row.email} />
-                      <input
-                        name="displayName"
-                        type="text"
-                        required
-                        defaultValue={row.displayName}
-                        placeholder="Display name"
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900"
-                      />
-                      <button
-                        type="submit"
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                      >
-                        Save
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+        <div className="mt-8 flex items-baseline justify-between">
+          <Eyebrow>Accounts</Eyebrow>
+          <span className="text-xs text-fg-faint">{rows.length}</span>
         </div>
+
+        {rows.length === 0 ? (
+          <Card className="mt-3 text-center">
+            <div className="font-semibold">No testers found</div>
+            <p className="mt-1 text-sm text-fg-muted">
+              Signed-up users will appear here once they have an event or a profile row.
+            </p>
+          </Card>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {rows.map((row) => (
+              <li key={row.userId}>
+                <Card padded={false} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold">{row.email}</div>
+                      <div className="mt-0.5 text-xs text-fg-faint">{formatDateTime(row.createdAt)}</div>
+                    </div>
+                    <span
+                      className={cx(
+                        "inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                        row.hasProfile ? "bg-success-soft text-success" : "bg-danger-soft text-danger",
+                      )}
+                    >
+                      {row.hasProfile ? "Profile" : "No profile"}
+                    </span>
+                  </div>
+
+                  <form action={saveTesterDisplayNameAction} className="mt-3 flex gap-2">
+                    <input type="hidden" name="userId" value={row.userId} />
+                    <input type="hidden" name="email" value={row.email} />
+                    <input
+                      name="displayName"
+                      type="text"
+                      required
+                      defaultValue={row.displayName}
+                      aria-label={`Display name for ${row.email}`}
+                      placeholder="Display name"
+                      className={inputStyles({ size: "sm" })}
+                    />
+                    <Button type="submit" variant="secondary">
+                      Save
+                    </Button>
+                  </form>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-    </main>
+    </PageShell>
   );
 }

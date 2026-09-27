@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { Star } from "lucide-react";
+import { HistoryEntryLink, HistoryList } from "@/components/history/profile-history";
+import { buttonStyles } from "@/components/ui/button";
+import { Card, Eyebrow } from "@/components/ui/card";
+import { Wordmark } from "@/components/ui/brand";
+import { Notice } from "@/components/ui/notice";
+import { PageShell } from "@/components/ui/page";
+import { TabBar } from "@/components/ui/tab-bar";
 
 type RatingRow = {
   id: string;
@@ -49,104 +57,64 @@ export default async function RatePage({ searchParams }: RatePageProps) {
   const ratings = (data || []) as RatingRow[];
 
   return (
-    <main className="min-h-screen bg-[#F8F8F6] text-zinc-900 p-4 sm:p-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white border border-zinc-200 rounded-3xl p-5 md:p-6 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-sm text-zinc-500">Cask Unknown</div>
-              <h1 className="text-3xl font-extrabold tracking-tight mt-2">
-                Rate Mode
-              </h1>
-              <p className="text-sm text-zinc-500 mt-2">
-                Quick personal ratings, separate from the blind-tasting flow.
-              </p>
-            </div>
+    <PageShell bottomInset>
+      <TabBar />
+      <div className="animate-fade-slide-in">
+        <header className="flex items-center justify-between">
+          <Wordmark />
+          <Link href="/rate/new" className={buttonStyles({ variant: "primary", size: "sm" })}>
+            <Star className="h-4 w-4" /> Rate a pour
+          </Link>
+        </header>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Link
-                href="/rate/new"
-                className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold bg-zinc-900 text-white hover:bg-zinc-800"
-              >
-                Rate Now
-              </Link>
-              <Link
-                href="/profile"
-                className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
-              >
-                Profile
-              </Link>
-              <Link
-                href="/"
-                className="inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
-              >
-                Home
-              </Link>
-            </div>
-          </div>
+        <h1 className="mt-8 font-display text-3xl font-semibold tracking-tight">Solo ratings</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          Quick personal ratings, separate from blind tastings. Your full history lives on your{" "}
+          <Link href="/profile" className="font-semibold text-accent hover:text-accent-hover">
+            profile
+          </Link>
+          .
+        </p>
 
-          <div className="mt-6">
-            <div className="text-sm font-semibold text-zinc-800">
-              Recent Ratings
-            </div>
+        {resolvedSearchParams?.saved === "1" ? (
+          <Notice tone="success" className="mt-4">
+            Rating saved.
+          </Notice>
+        ) : null}
 
-            {resolvedSearchParams?.saved === "1" ? (
-              <div className="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700">
-                Rating saved.
-              </div>
-            ) : null}
+        <Eyebrow className="mt-8">Recent ratings</Eyebrow>
 
-            {error ? (
-              <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 px-5 py-4">
-                <div className="font-semibold text-red-700">
-                  Could not load ratings
-                </div>
-                <div className="mt-1 text-sm text-red-600">{error.message}</div>
-              </div>
-            ) : ratings.length === 0 ? (
-              <div className="mt-4 rounded-3xl border border-zinc-200 px-6 py-8 text-center">
-                <div className="text-lg font-semibold">No ratings yet</div>
-                <div className="mt-2 text-sm text-zinc-500">
-                  Tap Rate Now.
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {ratings.map((rating) => (
-                  <Link
-                    key={rating.id}
+        {error ? (
+          <Notice tone="danger" title="Could not load ratings" className="mt-3">
+            {error.message}
+          </Notice>
+        ) : ratings.length === 0 ? (
+          <Card className="mt-3 text-center">
+            <div className="font-semibold">No ratings yet</div>
+            <p className="mt-1 text-sm text-fg-muted">Score something you&apos;re drinking to start your log.</p>
+            <Link href="/rate/new" className={buttonStyles({ variant: "primary", size: "md", className: "mt-4" })}>
+              <Star className="h-4 w-4" /> Rate a pour
+            </Link>
+          </Card>
+        ) : (
+          <div className="mt-3">
+            <HistoryList>
+              {ratings.map((rating) => (
+                <li key={rating.id}>
+                  <HistoryEntryLink
                     href={`/history/rate/${rating.id}?returnTo=${encodeURIComponent("/rate")}`}
-                    className="block rounded-2xl bg-[#F8F8F6] border border-zinc-200 px-4 py-4 hover:bg-zinc-50"
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <div className="font-semibold">
-                          {getWhiskeyName(rating.whiskey)}
-                        </div>
-                        <div className="text-xs text-zinc-500 mt-1">
-                          Rated {formatRatedAt(rating.rated_at)}
-                        </div>
-                        {rating.notes ? (
-                          <div className="mt-2 text-sm text-zinc-600">
-                            {rating.notes}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-2xl font-extrabold tabular-nums">
-                          {Number(rating.total_score ?? 0).toFixed(1)}
-                        </div>
-                        <div className="text-xs text-zinc-500">Total score</div>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
+                    title={getWhiskeyName(rating.whiskey)}
+                    meta={formatRatedAt(rating.rated_at)}
+                    notes={rating.notes || undefined}
+                    score={Number(rating.total_score ?? 0).toFixed(1)}
+                    scoreLabel="of 100"
+                  />
+                </li>
+              ))}
+            </HistoryList>
           </div>
-        </div>
+        )}
       </div>
-    </main>
+    </PageShell>
   );
 }
