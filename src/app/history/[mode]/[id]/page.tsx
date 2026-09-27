@@ -3,7 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { loadPublicRateHistoryRecords } from "@/lib/profile-history/read-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/redirects";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { FlavorTagList } from "@/components/flavor-tags";
 import { formatScore } from "@/components/history/profile-history";
 import { buttonStyles } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
@@ -162,6 +163,36 @@ function getWhiskeyInfo(whiskey: RateRecord["whiskey"]) {
   }
 
   return whiskey;
+}
+
+/**
+ * The bottle behind an entry and its flavor tags. Kept apart from the record
+ * loaders so it degrades on its own: before the reveal-night migration there
+ * is no flavor_tags column, and the bottle link still works.
+ */
+async function loadEntryExtras(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  mode: HistoryMode,
+  entryId: string
+): Promise<{ whiskeyId: string | null; tags: string[] }> {
+  const table = mode === "rate" ? "ratings" : "scores";
+  const idColumn = mode === "rate" ? "whiskey_id" : "pour_id";
+
+  let row: Record<string, unknown> | null = null;
+  const withTags = await supabase.from(table).select(`${idColumn},flavor_tags`).eq("id", entryId).maybeSingle();
+  if (!withTags.error) {
+    row = withTags.data as Record<string, unknown> | null;
+  } else {
+    const plain = await supabase.from(table).select(idColumn).eq("id", entryId).maybeSingle();
+    row = plain.error ? null : (plain.data as Record<string, unknown> | null);
+  }
+  if (!row) return { whiskeyId: null, tags: [] };
+
+  const tags = Array.isArray(row.flavor_tags) ? (row.flavor_tags as string[]) : [];
+  if (mode === "rate") return { whiskeyId: (row.whiskey_id as string | null) ?? null, tags };
+
+  const pour = await supabase.from("pours").select("whiskey_id").eq("id", row.pour_id as string).maybeSingle();
+  return { whiskeyId: pour.error ? null : ((pour.data?.whiskey_id as string | null) ?? null), tags };
 }
 
 async function loadRateRecord(
@@ -604,6 +635,8 @@ export default async function HistoryDetailPage({
     categoryItems = score.breakdownItems;
   }
 
+  const extras = await loadEntryExtras(supabase, mode, entryId);
+
   return (
     <PageShell>
       <header className="flex items-center justify-between">
@@ -635,11 +668,20 @@ export default async function HistoryDetailPage({
           </div>
         </div>
         <p className="mt-2 text-sm text-fg-muted">{detailsLine}</p>
+        {extras.whiskeyId ? (
+          <Link
+            href={`/bottles/${extras.whiskeyId}`}
+            className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-accent hover:text-accent-hover"
+          >
+            Everyone&apos;s take on this bottle <ChevronRight className="h-4 w-4" />
+          </Link>
+        ) : null}
 
-        {notes ? (
+        {notes || extras.tags.length ? (
           <Card className="mt-6">
             <Eyebrow>Tasting notes</Eyebrow>
-            <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-fg">{notes}</p>
+            <FlavorTagList tags={extras.tags} className="mt-3" />
+            {notes ? <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-fg">{notes}</p> : null}
           </Card>
         ) : null}
 

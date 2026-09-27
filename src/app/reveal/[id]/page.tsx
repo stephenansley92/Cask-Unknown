@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ConnectionBanner } from "@/components/connection-banner";
@@ -8,14 +9,32 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  DollarSign,
   Download,
   GlassWater,
   Play,
   RefreshCw,
   Share2,
   SkipForward,
+  Target,
   Trophy,
+  Users,
 } from "lucide-react";
+import { FlavorTagList } from "@/components/flavor-tags";
+import { countFlavorTags } from "@/lib/flavor-tags";
+import {
+  contrarian,
+  giantKiller,
+  guessLeaderboard,
+  pairMatches,
+  pourGuessSummary,
+  pourPrice,
+  tasteTwins,
+  twinFor,
+  valueRows,
+  type Guess,
+} from "@/lib/reveal/insights";
+import { matchLabel } from "@/lib/palate/profile";
 import { Button } from "@/components/ui/button";
 import { Card, Eyebrow } from "@/components/ui/card";
 import { LoadingScreen, Wordmark } from "@/components/ui/brand";
@@ -33,6 +52,9 @@ type SessionRow = {
   is_blind: boolean;
   status: string;
   created_at?: string | null;
+  guess_bottles?: boolean;
+  guess_proof?: boolean;
+  guess_price?: boolean;
 };
 
 type PourRow = {
@@ -41,6 +63,14 @@ type PourRow = {
   code: string;
   bottle_name: string | null;
   sort_order: number;
+  // Bottle facts arrive once names are visible (reveal-night migration).
+  whiskey_id?: string | null;
+  distillery?: string | null;
+  proof?: number | string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  msrp?: number | string | null;
+  secondary?: number | string | null;
 };
 
 type ParticipantRow = {
@@ -67,6 +97,7 @@ type ScoreRow = {
   value: number;
   total: number;
   notes?: string | null;
+  flavor_tags?: string[] | null;
 };
 
 const CATEGORY = [
@@ -239,6 +270,7 @@ export default function RevealPage() {
   const [pours, setPours] = useState<PourRow[]>([]);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [scores, setScores] = useState<ScoreRow[]>([]);
+  const [guesses, setGuesses] = useState<Guess[]>([]);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [currentParticipantId, setCurrentParticipantId] = useState("");
@@ -256,6 +288,7 @@ export default function RevealPage() {
     setPours(snapshot.pours as PourRow[]);
     setParticipants(snapshot.participants as ParticipantRow[]);
     setScores(snapshot.scores as ScoreRow[]);
+    setGuesses((snapshot.guesses ?? []) as Guess[]);
   };
 
   const runLoad = async () => {
@@ -566,6 +599,45 @@ export default function RevealPage() {
     };
   }, [currentParticipant, perUserRankings, perUserRankMeta, pourRankMeta, pourStats]);
 
+  const pairs = useMemo(() => pairMatches(participants, scores), [participants, scores]);
+  const twins = useMemo(() => tasteTwins(pairs), [pairs]);
+  const tableContrarian = useMemo(() => contrarian(participants, scores), [participants, scores]);
+  const yourTwin = useMemo(
+    () => (currentParticipant ? twinFor(currentParticipant.id, pairs) : null),
+    [currentParticipant, pairs]
+  );
+
+  const valueTable = useMemo(
+    () =>
+      valueRows(
+        pourStats.map((ps) => ({
+          id: ps.pour.id,
+          name: displayPourName(ps.pour),
+          avgTotal: ps.avgTotal,
+          msrp: Number(ps.pour.msrp) || null,
+          secondary: Number(ps.pour.secondary) || null,
+        }))
+      ),
+    // displayPourName only depends on session state already in pourStats' inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pourStats, session?.is_blind, isRevealed]
+  );
+  const bestValue = valueTable[0] ?? null;
+  const upset = useMemo(() => giantKiller(valueTable), [valueTable]);
+
+  const guessBoard = useMemo(
+    () => guessLeaderboard(participants, pours, guesses),
+    [participants, pours, guesses]
+  );
+
+  const tagsByPour = useMemo(() => {
+    const out: Record<string, { tag: string; count: number }[]> = {};
+    for (const pour of pours) {
+      out[pour.id] = countFlavorTags(scores.filter((sc) => sc.pour_id === pour.id).map((sc) => sc.flavor_tags));
+    }
+    return out;
+  }, [pours, scores]);
+
   // Cinematic ordering: LAST → FIRST (reverse of pourStats)
   const cinematicList = useMemo(() => {
     const reversed = [...pourStats].reverse(); // low → high
@@ -718,6 +790,11 @@ export default function RevealPage() {
           ps.pour
         )} - ${ps.avgTotal.toFixed(1)}/100`;
       }),
+      "",
+      ...(guessBoard[0]
+        ? ["", `Best palate: ${guessBoard[0].participant.display_name} (${guessBoard[0].points} pts)`]
+        : []),
+      ...(bestValue ? [`Best value: ${bestValue.name} - ${bestValue.avgTotal.toFixed(1)} at ${bestValue.price}`] : []),
       "",
       "Category Winners:",
       ...categoryWinners.map(
@@ -886,6 +963,19 @@ export default function RevealPage() {
   const pourSubtitle = (p: PourRow) =>
     displayPourName(p) !== `Pour ${p.code}` ? `Pour ${p.code}` : null;
 
+  // "Buffalo Trace · 90 proof · $30" once the bottle is visible.
+  const pourFacts = (p: PourRow) => {
+    if (session.is_blind && !isRevealed) return null;
+    const proof = Number(p.proof);
+    const price = pourPrice(p);
+    const parts = [
+      p.distillery && p.distillery !== displayPourName(p) ? p.distillery : null,
+      Number.isFinite(proof) && proof > 0 ? `${proof} proof` : null,
+      price ? `${price.toFixed(0)}` : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" · ") : null;
+  };
+
   // ---------- Final Results ----------
   if (isFinalStep) {
     const podium = pourStats.slice(0, 3);
@@ -914,7 +1004,7 @@ export default function RevealPage() {
 
         {/* Podium */}
         {podium.length ? (
-          <div className="mt-8 grid gap-3 md:grid-cols-3">
+          <div className="mt-8 grid grid-cols-1 gap-3 md:grid-cols-3">
             {podium.map((row, index) => {
               const rank = pourRankMeta[row.pour.id];
               const isFirst = rank?.rank === 1;
@@ -969,7 +1059,113 @@ export default function RevealPage() {
           </Button>
         </div>
 
-        <div className="mt-8 grid gap-4 lg:grid-cols-5">
+        {guessBoard.length || twins || bestValue ? (
+          <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {guessBoard.length ? (
+              <Card padded={false}>
+                <div className="flex items-center gap-2 px-5 pt-5">
+                  <Target className="h-4 w-4 text-accent" />
+                  <Eyebrow>Best palate</Eyebrow>
+                </div>
+                <ol className="mt-3">
+                  {guessBoard.map((row, index) => (
+                    <li key={row.participant.id} className="flex items-center gap-3 border-t border-line px-5 py-3">
+                      <span
+                        className={cx(
+                          "w-5 shrink-0 text-center font-display font-semibold tabular-nums",
+                          index === 0 ? "text-accent" : "text-fg-faint",
+                        )}
+                      >
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold">
+                          {row.participant.display_name}
+                          {row.participant.id === currentParticipantId ? (
+                            <span className="ml-1.5 text-xs font-normal text-fg-faint">(you)</span>
+                          ) : null}
+                        </span>
+                        {row.bottlesGuessed ? (
+                          <span className="block text-xs text-fg-faint">
+                            {row.bottlesCorrect} of {row.bottlesGuessed} bottles right
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="shrink-0 font-display text-xl font-semibold tabular-nums">
+                        {row.points}
+                        <span className="text-xs font-sans font-normal text-fg-faint"> pts</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </Card>
+            ) : null}
+
+            {twins ? (
+              <Card>
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-accent" />
+                  <Eyebrow>Taste twins</Eyebrow>
+                </div>
+                <div className="mt-3 font-display text-2xl font-semibold leading-tight">
+                  {twins.a.display_name} &amp; {twins.b.display_name}
+                </div>
+                <p className="mt-1 text-sm text-fg-muted">
+                  {twins.correlation !== null
+                    ? `${matchLabel(twins.correlation)} · `
+                    : ""}
+                  {twins.meanAbsDiff.toFixed(1)} points apart per pour on average
+                </p>
+                {tableContrarian && tableContrarian.offBy >= 3 ? (
+                  <div className="mt-4 border-t border-line pt-4">
+                    <Eyebrow>The contrarian</Eyebrow>
+                    <div className="mt-1.5 font-semibold">{tableContrarian.participant.display_name}</div>
+                    <p className="text-sm text-fg-muted">
+                      {tableContrarian.offBy.toFixed(1)} points off the rest of the table per pour
+                    </p>
+                  </div>
+                ) : null}
+              </Card>
+            ) : null}
+
+            {bestValue ? (
+              <Card padded={false}>
+                <div className="flex items-center gap-2 px-5 pt-5">
+                  <DollarSign className="h-4 w-4 text-accent" />
+                  <Eyebrow>Best value</Eyebrow>
+                </div>
+                <div className="px-5">
+                  <div className="mt-3 font-display text-2xl font-semibold leading-tight">{bestValue.name}</div>
+                  <p className="mt-1 text-sm text-fg-muted">
+                    {bestValue.avgTotal.toFixed(1)} points at ${bestValue.price.toFixed(0)} ·{" "}
+                    {bestValue.pointsPerTenDollars.toFixed(1)} pts per $10
+                  </p>
+                  {upset ? (
+                    <p className="mt-2 rounded-2xl bg-accent-soft px-3 py-2 text-sm text-accent">
+                      {upset.winner.name} (${upset.winner.price.toFixed(0)}) beat {upset.beat.name} ($
+                      {upset.beat.price.toFixed(0)}), a bottle {upset.priceRatio.toFixed(1)}× the price.
+                    </p>
+                  ) : null}
+                </div>
+                {valueTable.length > 1 ? (
+                  <ol className="mt-3">
+                    {valueTable.map((row) => (
+                      <li key={row.id} className="flex items-center justify-between gap-3 border-t border-line px-5 py-2.5 text-sm">
+                        <span className="min-w-0 truncate">{row.name}</span>
+                        <span className="shrink-0 tabular-nums text-fg-muted">
+                          ${row.price.toFixed(0)} · <span className="font-semibold text-fg">{row.pointsPerTenDollars.toFixed(1)}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+                <p className="px-5 pb-4 pt-2 text-[11px] text-fg-faint">Retail price where known, otherwise secondary.</p>
+              </Card>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-5">
           {/* Full ranking */}
           <Card className="lg:col-span-3" padded={false}>
             <div className="px-5 pt-5">
@@ -989,7 +1185,20 @@ export default function RevealPage() {
                       {formatRankLabel(rank)}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-semibold">{displayPourName(ps.pour)}</div>
+                      <div className="truncate font-semibold">
+                        {ps.pour.whiskey_id && isRevealed ? (
+                          <Link href={`/bottles/${ps.pour.whiskey_id}`} className="hover:text-accent">
+                            {displayPourName(ps.pour)}
+                          </Link>
+                        ) : (
+                          displayPourName(ps.pour)
+                        )}
+                      </div>
+                      {tagsByPour[ps.pour.id]?.length ? (
+                        <div className="mt-0.5 truncate text-xs text-fg-faint">
+                          {tagsByPour[ps.pour.id].slice(0, 4).map((t) => t.tag).join(" · ")}
+                        </div>
+                      ) : null}
                       <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sunken">
                         <div
                           className={cx("h-full rounded-full", rank?.rank === 1 ? "bg-accent" : "bg-fg-faint")}
@@ -1026,11 +1235,11 @@ export default function RevealPage() {
           </Card>
         </div>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2">
             <Eyebrow>Your recap</Eyebrow>
             {personalRecap ? (
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl bg-sunken px-4 py-4">
                   <div className="text-xs text-fg-faint">Your #1</div>
                   <div className="mt-1 font-semibold">{displayPourName(personalRecap.top.pour)}</div>
@@ -1060,6 +1269,17 @@ export default function RevealPage() {
                       : "No ranking split yet."}
                   </div>
                 </div>
+                <div className="rounded-2xl bg-sunken px-4 py-4">
+                  <div className="text-xs text-fg-faint">Your taste twin tonight</div>
+                  <div className="mt-1 font-semibold">{yourTwin ? yourTwin.other.display_name : "—"}</div>
+                  <div className="mt-1 text-xs text-fg-muted">
+                    {yourTwin
+                      ? `${yourTwin.match.meanAbsDiff.toFixed(1)} points apart per pour${
+                          yourTwin.match.correlation !== null ? ` · ${matchLabel(yourTwin.match.correlation).toLowerCase()}` : ""
+                        }`
+                      : "Needs another taster with shared pours."}
+                  </div>
+                </div>
               </div>
             ) : (
               <p className="mt-3 text-sm text-fg-muted">
@@ -1086,7 +1306,7 @@ export default function RevealPage() {
         {/* Per-taster rankings */}
         <section className="mt-8">
           <Eyebrow>Each taster&apos;s ranking</Eyebrow>
-          <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {participants.map((u) => {
               const uStats = perUserRankings[u.id];
               const ranking = uStats?.ranking || [];
@@ -1155,6 +1375,8 @@ export default function RevealPage() {
 
   // ---------- Cinematic pour screen (built for a TV) ----------
   const ps = activeCinematic;
+  const activeGuessSummary =
+    ps && guesses.length ? pourGuessSummary(ps.pour, participants, guesses) : null;
 
   const placeMeta = ps ? pourRankMeta[ps.pour.id] : null;
   const placeFromTop = placeMeta?.rank ?? 0;
@@ -1209,8 +1431,10 @@ export default function RevealPage() {
             >
               {ps ? displayPourName(ps.pour) : "—"}
             </h1>
-            {ps && pourSubtitle(ps.pour) ? (
-              <div className="mt-2 text-lg text-fg-muted">{pourSubtitle(ps.pour)}</div>
+            {ps && (pourSubtitle(ps.pour) || pourFacts(ps.pour)) ? (
+              <div className="mt-2 text-lg text-fg-muted">
+                {[pourSubtitle(ps.pour), pourFacts(ps.pour)].filter(Boolean).join(" · ")}
+              </div>
             ) : null}
           </div>
 
@@ -1253,8 +1477,38 @@ export default function RevealPage() {
           </div>
         ) : null}
 
+        {ps && tagsByPour[ps.pour.id]?.length ? (
+          <div className="mt-6">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-faint">The table tasted</div>
+            <FlavorTagList tags={tagsByPour[ps.pour.id].slice(0, 10)} className="mt-2" />
+          </div>
+        ) : null}
+
+        {ps && activeGuessSummary ? (
+          <div className="mt-6 flex flex-wrap gap-2">
+            {activeGuessSummary.bottleGuessers ? (
+              <span className={chipClass(activeGuessSummary.correctNames.length ? "best" : "least")}>
+                <Target className="mr-1.5 h-3.5 w-3.5" />
+                {activeGuessSummary.correctNames.length
+                  ? `Guessed it: ${activeGuessSummary.correctNames.join(", ")}`
+                  : `Nobody guessed it (${activeGuessSummary.bottleGuessers} tried)`}
+              </span>
+            ) : null}
+            {activeGuessSummary.closestProof ? (
+              <span className="inline-flex items-center rounded-full border border-line-strong px-3 py-1 text-xs font-semibold text-fg-muted">
+                Closest proof: {activeGuessSummary.closestProof.name} ({activeGuessSummary.closestProof.guess})
+              </span>
+            ) : null}
+            {activeGuessSummary.closestPrice ? (
+              <span className="inline-flex items-center rounded-full border border-line-strong px-3 py-1 text-xs font-semibold text-fg-muted">
+                Closest price: {activeGuessSummary.closestPrice.name} (${activeGuessSummary.closestPrice.guess})
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
         {notesForActivePour.length ? (
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
+          <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2">
             {notesForActivePour.map((row, idx) => (
               <figure key={`${row.participantName}-${idx}`} className="rounded-2xl border border-line bg-surface p-4">
                 <blockquote className="font-display text-lg leading-snug text-fg">“{row.notes}”</blockquote>

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PalateEntry, PalateMatchRow } from "@/lib/palate/profile";
 
 export type PublicSession = {
   id: string;
@@ -70,6 +71,14 @@ export type RevealSessionSnapshot = {
   pours: SessionPour[];
   participants: Array<Omit<SessionParticipant, "access_token">>;
   scores: SessionScore[];
+  /** Present once the reveal-night migration is applied; empty until the big reveal. */
+  guesses?: Array<{
+    pour_id: string;
+    participant_id: string;
+    bottle_guess: string | null;
+    proof_guess: number | null;
+    price_guess: number | null;
+  }>;
 };
 
 type RpcResult<T> = { data: T | null; error: { message: string } | null };
@@ -154,7 +163,7 @@ export async function saveParticipantScore(
     pourId: string;
     participantId: string;
     accessToken: string;
-    score: Record<string, number | string>;
+    score: Record<string, number | string | string[]>;
     lockCore?: boolean;
     lockFinal?: boolean;
   },
@@ -245,4 +254,122 @@ export async function deleteHostParticipant(
     p_participant_id: participantId,
     p_legacy_host_key: legacyHostKey || null,
   });
+}
+
+// ── Reveal night (202609270001_reveal_night.sql) ─────────────────────────
+// Until that migration is applied these RPCs don't exist; callers treat an
+// error as "feature unavailable" and hide the UI.
+
+export type GuessingSettings = { bottles: boolean; proof: boolean; price: boolean };
+
+export type ParticipantGuess = {
+  pour_id: string;
+  bottle_guess: string | null;
+  proof_guess: number | null;
+  price_guess: number | null;
+};
+
+export type ParticipantGuessing = {
+  settings: GuessingSettings;
+  candidates: string[];
+  guesses: ParticipantGuess[];
+};
+
+export function guessingEnabled(settings: GuessingSettings | null | undefined) {
+  return Boolean(settings && (settings.bottles || settings.proof || settings.price));
+}
+
+export async function getSessionGuessing(client: SupabaseClient, sessionId: string) {
+  const response = await client.rpc("get_session_guessing", { p_session_id: sessionId });
+  return result<GuessingSettings>(response);
+}
+
+export async function hostSetGuessing(
+  client: SupabaseClient,
+  sessionId: string,
+  settings: Partial<GuessingSettings>,
+  legacyHostKey: string,
+) {
+  const response = await client.rpc("host_set_guessing", {
+    p_session_id: sessionId,
+    p_settings: settings,
+    p_legacy_host_key: legacyHostKey || null,
+  });
+  return result<GuessingSettings>(response);
+}
+
+export async function getParticipantGuessing(
+  client: SupabaseClient,
+  sessionId: string,
+  participantId: string,
+  accessToken: string,
+) {
+  const response = await client.rpc("get_participant_guessing", {
+    p_session_id: sessionId,
+    p_participant_id: participantId,
+    p_access_token: accessToken,
+  });
+  return result<ParticipantGuessing>(response);
+}
+
+export async function saveParticipantGuess(
+  client: SupabaseClient,
+  input: {
+    sessionId: string;
+    pourId: string;
+    participantId: string;
+    accessToken: string;
+    guess: { bottle_guess?: string | null; proof_guess?: number | null; price_guess?: number | null };
+  },
+) {
+  const response = await client.rpc("save_participant_guess", {
+    p_session_id: input.sessionId,
+    p_pour_id: input.pourId,
+    p_participant_id: input.participantId,
+    p_access_token: input.accessToken,
+    p_guess: input.guess,
+  });
+  return result<ParticipantGuess>(response);
+}
+
+export type WhiskeySummary = {
+  whiskey: {
+    id: string;
+    name: string;
+    distillery: string | null;
+    proof: number | null;
+    category: string | null;
+    subcategory: string | null;
+    bottle_size: string | null;
+    rarity: string | null;
+    msrp: number | null;
+    secondary: number | null;
+  };
+  stats: {
+    count: number;
+    blind_count: number;
+    rate_count: number;
+    avg_total: number | null;
+    categories: Record<string, number>;
+    tags: { tag: string; count: number }[];
+  };
+  mine: { id: string; source: "blind" | "rate"; total: number; created_at: string }[];
+  notes: {
+    author: string;
+    user_id: string | null;
+    total: number;
+    notes: string;
+    source: "blind" | "rate";
+    created_at: string;
+  }[];
+};
+
+export async function getWhiskeySummary(client: SupabaseClient, whiskeyId: string) {
+  const response = await client.rpc("get_whiskey_summary", { p_whiskey_id: whiskeyId });
+  return result<WhiskeySummary>(response);
+}
+
+export async function getMyPalate(client: SupabaseClient) {
+  const response = await client.rpc("get_my_palate");
+  return result<{ entries: PalateEntry[]; matches: PalateMatchRow[] }>(response);
 }

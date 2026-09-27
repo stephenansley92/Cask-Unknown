@@ -117,6 +117,12 @@ For the `20260711` session security rollout, preserve this exact order:
 6. Repeat the smoke tests and monitor auth, score persistence, realtime, and
    RPC error events.
 
+`202609270001_reveal_night.sql` (guessing game, flavor tags, bottle facts on
+the reveal, bottle pages, palate insights) is additive and can be applied
+before or after `202607110003`. The client ships first: it hides those
+features while their RPCs are missing and turns them on once the migration
+is applied, with no redeploy needed.
+
 Database migrations and application changes that depend on them must document
 their required order. Do not deploy a client that calls a new RPC before that
 RPC exists in the target database.

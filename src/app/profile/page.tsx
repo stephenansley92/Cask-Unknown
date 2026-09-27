@@ -53,6 +53,8 @@ import { PageShell } from "@/components/ui/page";
 import { StatusPill } from "@/components/ui/status-pill";
 import { TabBar } from "@/components/ui/tab-bar";
 import { Toast, useToast } from "@/components/ui/toast";
+import { SwitchRow } from "@/components/ui/switch";
+import { PalateSection } from "./palate-section";
 
 type SignupToast = {
   id: string;
@@ -1028,6 +1030,14 @@ export default function ProfilePage() {
           <div className="mt-6 space-y-3">
             <StatTiles overallAverage={overallAverage} ratedCount={ratedCount} sessionCount={sessionCount} />
 
+            {/* Palate insights come from the signed-in account, so skip them while
+                the owner is viewing another hard-coded tasting profile. */}
+            {!isOwner || activeProfile === userDisplayName ? (
+              <div className="pt-5">
+                <PalateSection />
+              </div>
+            ) : null}
+
             <section className="pt-5">
               <div className="flex items-baseline justify-between">
                 <Eyebrow>Blind tastings</Eyebrow>
@@ -1244,29 +1254,12 @@ export default function ProfilePage() {
               ) : null}
             </div>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={publicProfileIsPublic}
-              onClick={() => setPublicProfileIsPublic((v) => !v)}
-              className="mt-3 flex w-full items-center justify-between gap-4 rounded-2xl border border-line bg-sunken px-4 py-3 text-left hover:border-line-strong"
-            >
-              <span className="text-sm font-semibold">Show on Community</span>
-              <span
-                aria-hidden
-                className={cx(
-                  "relative h-7 w-12 shrink-0 rounded-full transition-colors",
-                  publicProfileIsPublic ? "bg-accent" : "bg-line-strong",
-                )}
-              >
-                <span
-                  className={cx(
-                    "absolute top-1 h-5 w-5 rounded-full bg-fg shadow transition-transform",
-                    publicProfileIsPublic ? "translate-x-6" : "translate-x-1",
-                  )}
-                />
-              </span>
-            </button>
+            <SwitchRow
+              checked={publicProfileIsPublic}
+              onChange={setPublicProfileIsPublic}
+              label="Show on Community"
+              className="mt-3"
+            />
 
             {publicProfileError ? (
               <Notice tone="danger" className="mt-3">
